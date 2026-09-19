@@ -33,3 +33,8 @@ add_executable(test_topic_concurrency tests/test_topic_concurrency.cpp)
 target_include_directories(test_topic_concurrency PRIVATE include)
 target_link_libraries(test_topic_concurrency PRIVATE GTest::gtest_main Threads::Threads)
 gtest_discover_tests(test_topic_concurrency)
+
+add_executable(test_thread_pool tests/test_thread_pool.cpp)
+target_include_directories(test_thread_pool PRIVATE include)
+target_link_libraries(test_thread_pool PRIVATE GTest::gtest_main Threads::Threads)
+gtest_discover_tests(test_thread_pool)
