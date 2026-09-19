@@ -38,3 +38,5 @@ add_executable(test_thread_pool tests/test_thread_pool.cpp)
 target_include_directories(test_thread_pool PRIVATE include)
 target_link_libraries(test_thread_pool PRIVATE GTest::gtest_main Threads::Threads)
 gtest_discover_tests(test_thread_pool)
+
+add_executable(server_experiment src/server_experiment.cpp)
