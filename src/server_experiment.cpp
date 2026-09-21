@@ -46,6 +46,18 @@ int main() {
 
     std::cout << "A client connected!\n";
 
+    char buffer[1024] = {};
+    ssize_t bytes_read = recv(client_fd, buffer, sizeof(buffer) - 1, 0);
+
+    if (bytes_read > 0) {
+        std::cout << "Received " << bytes_read << " bytes: " << buffer << "\n";
+
+        std::string response = "ACK: got your message\n";
+        send(client_fd, response.c_str(), response.size(), 0);
+    } else {
+        std::cout << "No data received (client disconnected immediately)\n";
+    }
+
     close(client_fd);
     close(server_fd);
     return 0;

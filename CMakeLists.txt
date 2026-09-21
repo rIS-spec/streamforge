@@ -40,3 +40,7 @@ target_link_libraries(test_thread_pool PRIVATE GTest::gtest_main Threads::Thread
 gtest_discover_tests(test_thread_pool)
 
 add_executable(server_experiment src/server_experiment.cpp)
+
+add_executable(broker_server src/broker_server.cpp)
+target_include_directories(broker_server PRIVATE include)
+target_link_libraries(broker_server PRIVATE Threads::Threads)
