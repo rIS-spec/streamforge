@@ -1,8 +1,10 @@
 #include <gtest/gtest.h>
+#include <cstdio>
 #include "topic.h"
 
 TEST(TopicTest, ConsumesInFIFOOrder) {
-    Topic topic;
+    std::remove("test_topic.log");
+    Topic topic("test_topic.log");
     Message m1; m1.payload = "first";
     Message m2; m2.payload = "second";
     topic.publish(m1);
@@ -17,7 +19,8 @@ TEST(TopicTest, ConsumesInFIFOOrder) {
 }
 
 TEST(TopicTest, ConsumeOnEmptyQueueReturnsFalse) {
-    Topic topic;
+    std::remove("test_topic.log");
+    Topic topic("test_topic.log");
     Message out;
     EXPECT_FALSE(topic.consume(out));
 }

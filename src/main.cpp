@@ -4,7 +4,7 @@
 #include "topic.h"
 
 int main() {
-    Topic topic;
+    Topic topic("streamforge_main.log");
     std::string line;
 
     while (std::getline(std::cin, line)) {

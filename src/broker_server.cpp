@@ -52,7 +52,7 @@ void handleClient(int client_fd, Topic& topic) {
 }
 
 int main() {
-    Topic topic;
+    Topic topic("streamforge_main.log");
     ThreadPool pool(4);
 
     int server_fd = socket(AF_INET, SOCK_STREAM, 0);

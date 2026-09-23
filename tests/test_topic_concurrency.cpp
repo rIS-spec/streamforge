@@ -1,10 +1,12 @@
 #include <gtest/gtest.h>
 #include <thread>
 #include <vector>
+#include <cstdio>
 #include "topic.h"
 
 TEST(TopicConcurrencyTest, HandlesManyProducersSafely) {
-    Topic topic;
+    std::remove("test_topic_concurrency.log");
+    Topic topic("test_topic_concurrency.log");
     const int num_threads = 10;
     const int messages_per_thread = 1000;
     std::vector<std::thread> threads;
