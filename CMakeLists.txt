@@ -44,3 +44,11 @@ add_executable(server_experiment src/server_experiment.cpp)
 add_executable(broker_server src/broker_server.cpp)
 target_include_directories(broker_server PRIVATE include)
 target_link_libraries(broker_server PRIVATE Threads::Threads)
+
+add_executable(test_protocol tests/test_protocol.cpp)
+target_include_directories(test_protocol PRIVATE include)
+target_link_libraries(test_protocol PRIVATE GTest::gtest_main)
+gtest_discover_tests(test_protocol)
+
+add_executable(test_client src/test_client.cpp)
+target_include_directories(test_client PRIVATE include)

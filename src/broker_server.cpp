@@ -1,5 +1,6 @@
 #include <iostream>
 #include <string>
+#include <vector>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <unistd.h>
@@ -7,37 +8,45 @@
 #include "message.h"
 #include "topic.h"
 #include "thread_pool.h"
+#include "protocol.h"
 
 void handleClient(int client_fd, Topic& topic) {
-    char buffer[1024];
+    std::vector<uint8_t> buffer;
+    char temp[1024];
+
     while (true) {
-        memset(buffer, 0, sizeof(buffer));
-        ssize_t bytes_read = recv(client_fd, buffer, sizeof(buffer) - 1, 0);
+        ssize_t bytes_read = recv(client_fd, temp, sizeof(temp), 0);
         if (bytes_read <= 0) break;
 
-        std::string line(buffer);
-        while (!line.empty() && (line.back() == '\n' || line.back() == '\r')) {
-            line.pop_back();
-        }
+        buffer.insert(buffer.end(), temp, temp + bytes_read);
 
-        std::string response;
-        if (line.starts_with("PRODUCE ")) {
-            Message m;
-            m.payload = line.substr(8);
-            topic.publish(m);
-            response = "OK\n";
-        } else if (line == "CONSUME") {
-            Message out;
-            if (topic.consume(out)) {
-                response = "MSG: " + out.payload + "\n";
+        while (true) {
+            DecodedPacket decoded = decodePacket(buffer.data(), buffer.size());
+            if (!decoded.valid) break;
+
+            std::string response;
+            if (decoded.payload.starts_with("PRODUCE ")) {
+                Message m;
+                m.payload = decoded.payload.substr(8);
+                topic.publish(m);
+                response = "OK";
+            } else if (decoded.payload == "CONSUME") {
+                Message out;
+                if (topic.consume(out)) {
+                    response = "MSG: " + out.payload;
+                } else {
+                    response = "EMPTY";
+                }
             } else {
-                response = "EMPTY\n";
+                response = "ERR unknown command";
             }
-        } else {
-            response = "ERR unknown command\n";
-        }
 
-        send(client_fd, response.c_str(), response.size(), 0);
+            auto reply = encodePacket(response);
+            send(client_fd, reply.data(), reply.size(), 0);
+
+            size_t consumed = 8 + decoded.payload.size();
+            buffer.erase(buffer.begin(), buffer.begin() + consumed);
+        }
     }
     close(client_fd);
 }
