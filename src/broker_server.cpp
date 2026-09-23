@@ -6,11 +6,11 @@
 #include <unistd.h>
 #include <cstring>
 #include "message.h"
-#include "topic.h"
+#include "broker.h"
 #include "thread_pool.h"
 #include "protocol.h"
 
-void handleClient(int client_fd, Topic& topic) {
+void handleClient(int client_fd, Broker& broker) {
     std::vector<uint8_t> buffer;
     char temp[1024];
 
@@ -28,11 +28,12 @@ void handleClient(int client_fd, Topic& topic) {
             if (decoded.payload.starts_with("PRODUCE ")) {
                 Message m;
                 m.payload = decoded.payload.substr(8);
-                topic.publish(m);
+                broker.publish(m);
                 response = "OK";
-            } else if (decoded.payload == "CONSUME") {
+            } else if (decoded.payload.starts_with("CONSUME ")) {
+                size_t partition_idx = std::stoul(decoded.payload.substr(8));
                 Message out;
-                if (topic.consume(out)) {
+                if (broker.consume(partition_idx, out)) {
                     response = "MSG: " + out.payload;
                 } else {
                     response = "EMPTY";
@@ -52,7 +53,7 @@ void handleClient(int client_fd, Topic& topic) {
 }
 
 int main() {
-    Topic topic("streamforge_main.log");
+    Broker broker(4, "streamforge");
     ThreadPool pool(4);
 
     int server_fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -75,8 +76,8 @@ int main() {
         int client_fd = accept(server_fd, (sockaddr*)&client_address, &client_len);
         if (client_fd < 0) continue;
 
-        pool.submit([client_fd, &topic]() {
-            handleClient(client_fd, topic);
+        pool.submit([client_fd, &broker]() {
+            handleClient(client_fd, broker);
         });
     }
 

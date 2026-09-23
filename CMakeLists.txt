@@ -57,3 +57,8 @@ add_executable(test_log tests/test_log.cpp)
 target_include_directories(test_log PRIVATE include)
 target_link_libraries(test_log PRIVATE GTest::gtest_main)
 gtest_discover_tests(test_log)
+
+add_executable(test_broker tests/test_broker.cpp)
+target_include_directories(test_broker PRIVATE include)
+target_link_libraries(test_broker PRIVATE GTest::gtest_main Threads::Threads)
+gtest_discover_tests(test_broker)
