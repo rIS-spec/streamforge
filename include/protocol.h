@@ -41,6 +41,11 @@ DecodedPacket decodePacket(const uint8_t* data, size_t data_len) {
     uint32_t magic = ntohl(magic_net);
     uint32_t length = ntohl(len_net);
 
+    constexpr uint32_t MAX_PAYLOAD_SIZE = 10 * 1024 * 1024; // 10 MB
+    if (length > MAX_PAYLOAD_SIZE) {
+        return {false, ""};
+    }
+
     if (magic != MAGIC_NUMBER) {
         return {false, ""};
     }

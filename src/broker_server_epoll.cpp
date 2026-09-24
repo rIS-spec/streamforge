@@ -128,8 +128,14 @@ int main(int argc, char* argv[]) {
     address.sin_family = AF_INET;
     address.sin_addr.s_addr = INADDR_ANY;
     address.sin_port = htons(cfg.port);
-    bind(server_fd, (sockaddr*)&address, sizeof(address));
-    listen(server_fd, 128);
+        if (bind(server_fd, (sockaddr*)&address, sizeof(address)) < 0) {
+        std::cerr << "Fatal: bind() failed on port " << cfg.port << " — " << strerror(errno) << "\n";
+        return 1;
+    }
+    if (listen(server_fd, 128) < 0) {
+        std::cerr << "Fatal: listen() failed — " << strerror(errno) << "\n";
+        return 1;
+    }
 
     int epoll_fd = epoll_create1(0);
     epoll_event ev{};
