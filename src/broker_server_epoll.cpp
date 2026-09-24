@@ -14,6 +14,14 @@
 #include "broker.h"
 #include "thread_pool.h"
 #include "protocol.h"
+#include <csignal>
+#include <atomic>
+
+std::atomic<bool> shutdown_requested{false};
+
+void signalHandler(int) {
+    shutdown_requested = true;
+}
 
 std::mutex buffers_mutex;
 std::unordered_map<int, std::vector<uint8_t>> client_buffers;
@@ -138,6 +146,8 @@ int main(int argc, char* argv[]) {
     }
 
     int epoll_fd = epoll_create1(0);
+    signal(SIGINT, signalHandler);
+    signal(SIGTERM, signalHandler);
     epoll_event ev{};
     ev.events = EPOLLIN;
     ev.data.fd = server_fd;
@@ -151,8 +161,9 @@ int main(int argc, char* argv[]) {
     const int MAX_EVENTS = 64;
     epoll_event events[MAX_EVENTS];
 
-    while (true) {
-        int n = epoll_wait(epoll_fd, events, MAX_EVENTS, -1);
+    while (!shutdown_requested) {
+        int n = epoll_wait(epoll_fd, events, MAX_EVENTS, 500);
+        if (n < 0) break;
         for (int i = 0; i < n; ++i) {
             int fd = events[i].data.fd;
             if (fd == server_fd) {
@@ -176,6 +187,7 @@ int main(int argc, char* argv[]) {
             }
         }
     }
+    std::cout << "\nShutdown signal received, closing...\n";
     close(server_fd);
     close(epoll_fd);
     return 0;
