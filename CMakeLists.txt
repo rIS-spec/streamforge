@@ -62,3 +62,9 @@ add_executable(test_broker tests/test_broker.cpp)
 target_include_directories(test_broker PRIVATE include)
 target_link_libraries(test_broker PRIVATE GTest::gtest_main Threads::Threads)
 gtest_discover_tests(test_broker)
+
+add_executable(epoll_experiment src/epoll_experiment.cpp)
+
+add_executable(broker_server_epoll src/broker_server_epoll.cpp)
+target_include_directories(broker_server_epoll PRIVATE include)
+target_link_libraries(broker_server_epoll PRIVATE Threads::Threads)
