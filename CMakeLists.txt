@@ -73,3 +73,7 @@ add_executable(test_recovery tests/test_recovery.cpp)
 target_include_directories(test_recovery PRIVATE include)
 target_link_libraries(test_recovery PRIVATE GTest::gtest_main)
 gtest_discover_tests(test_recovery)
+
+add_executable(benchmark_client src/benchmark_client.cpp)
+target_include_directories(benchmark_client PRIVATE include)
+target_link_libraries(benchmark_client PRIVATE Threads::Threads)
