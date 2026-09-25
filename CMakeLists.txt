@@ -68,3 +68,8 @@ add_executable(epoll_experiment src/epoll_experiment.cpp)
 add_executable(broker_server_epoll src/broker_server_epoll.cpp)
 target_include_directories(broker_server_epoll PRIVATE include)
 target_link_libraries(broker_server_epoll PRIVATE Threads::Threads)
+
+add_executable(test_recovery tests/test_recovery.cpp)
+target_include_directories(test_recovery PRIVATE include)
+target_link_libraries(test_recovery PRIVATE GTest::gtest_main)
+gtest_discover_tests(test_recovery)
