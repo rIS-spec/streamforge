@@ -34,3 +34,12 @@ TEST(BrokerTest, SameKeyAlwaysGoesToSamePartition) {
 
     EXPECT_EQ(total_found, 2);
 }
+
+TEST(BrokerTest, ConsumeOnInvalidPartitionReturnsFalse) {
+    cleanupLogs("test_broker_invalid", 4);
+    Broker broker(4, "test_broker_invalid");
+
+    Message out;
+    EXPECT_FALSE(broker.consume(99, out));   // way out of range
+    EXPECT_FALSE(broker.consume(4, out));    // exactly one past the last valid index (0-3)
+}
