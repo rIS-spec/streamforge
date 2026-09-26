@@ -1,0 +1,16 @@
+services:
+  broker:
+    build: .
+    ports:
+      - "9001:9001"
+    environment:
+      SF_PORT: "9001"
+      SF_WORKERS: "4"
+      SF_PARTITIONS: "4"
+      SF_DATA_DIR: "/data"
+    volumes:
+      - sf_data:/data
+    stop_grace_period: 10s
+
+volumes:
+  sf_data:
