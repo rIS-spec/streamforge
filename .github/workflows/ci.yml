@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    name: Build + Unit/Integration Tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake g++ ninja-build
+
+      - name: Configure
+        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Run test suite
+        working-directory: build
+        run: ctest --output-on-failure
+
+      # TODO (tracked, not silently skipped): no test yet spins up
+      # broker_server_epoll and drives it over a real TCP socket end-to-end.
+      # test_broker/test_recovery cover multi-component integration
+      # (Topic+Log, Broker+Partitioner+Topic) but not the live server binary.
+
+  sanitizers:
+    name: ASan + UBSan Build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake g++ ninja-build
+
+      - name: Configure with sanitizers
+        run: >
+          cmake -B build-san -G Ninja
+          -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer -g"
+          -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+
+      - name: Build with sanitizers
+        run: cmake --build build-san
+
+      - name: Run test suite under sanitizers
+        working-directory: build-san
+        env:
+          ASAN_OPTIONS: detect_leaks=1
+          UBSAN_OPTIONS: print_stacktrace=1
+        run: ctest --output-on-failure
+
+  lint:
+    name: clang-tidy
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake g++ ninja-build clang-tidy
+
+      - name: Configure (generates compile_commands.json)
+        run: cmake -B build -G Ninja -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+
+      - name: Run clang-tidy on our own source (excludes googletest)
+        run: |
+          find include src -name '*.h' -o -name '*.cpp' | \
+          xargs clang-tidy -p build --quiet || true
+        # `|| true`: clang-tidy warnings shouldn't fail the whole pipeline yet
+        # (no baseline established) — this job reports findings without
+        # blocking merges until we've done a first pass and fixed what matters.
+
+  # Future work, not yet enabled:
+  # docker-build:
+  #   name: Docker image build
+  #   runs-on: ubuntu-24.04
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - run: docker build -t streamforge-broker .
