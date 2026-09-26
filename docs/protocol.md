@@ -3,16 +3,17 @@
 ## Frame format
 
 ```
-┌──────────────┬──────────────┬─────────────────────┐
-│ magic (4B)   │ length (4B)  │ payload (length B)   │
-│ 0x53465247   │ uint32, NBO  │ raw bytes            │
-│ "SFRG"       │              │                      │
-└──────────────┴──────────────┴─────────────────────┘
+┌──────────────┬──────────────┬───────────────────┬──────────────┐
+│ magic (4B)   │ length (4B)  │ payload (length B) │ crc32 (4B)   │
+│ 0x53465247   │ uint32, NBO  │ raw bytes          │ uint32, NBO  │
+│ "SFRG"       │              │                    │ of payload   │
+└──────────────┴──────────────┴───────────────────┴──────────────┘
 ```
 
 - **Magic number**: `0x53465247` — ASCII "SFRG". First check on every decode; catches a desynced stream (e.g. a client speaking a different or corrupted protocol) before we trust the length field at all.
 - **Length**: `uint32_t`, network byte order (`htonl`/`ntohl`). Capped at 10MB (`MAX_PAYLOAD_SIZE` in `protocol.h`) — this cap is checked **before** the magic-number check triggers a read of that many bytes, specifically so a malicious or corrupted length field can't make the broker allocate or wait for an unbounded amount of data.
 - **Payload**: raw bytes, application-defined content (currently ASCII commands like `PRODUCE <text>` or `CONSUME <partition>`).
+- **CRC32** (Tier 4): standard IEEE 802.3 polynomial, computed over the payload only, appended after it. `decodePacket()` recomputes this on decode and rejects the frame if it doesn't match — this is what closes the "no checksums" gap noted in earlier revisions of this doc.
 
 ## `decodePacket` semantics
 
@@ -27,9 +28,10 @@ Returns `{false, ""}` — never throws, never reads out of bounds — for any of
 1. Fewer than 8 bytes available (can't even read magic+length yet)
 2. Declared length exceeds `MAX_PAYLOAD_SIZE`
 3. Magic number doesn't match
-4. Available bytes are fewer than `8 + length` (payload not fully arrived yet)
+4. Available bytes are fewer than `8 + length + 4` (payload + trailing CRC not fully arrived yet)
+5. Recomputed CRC32 doesn't match the stored CRC32 (payload corruption — e.g. a single bit-flip) — verified by `ProtocolTest.CorruptedPayloadFailsChecksum`
 
-**Known, documented limitation**: all four cases collapse into the same `valid = false` — there's no way for a caller to distinguish "wait for more data" from "this stream is corrupted, give up." A production version would use an enum (`Incomplete`, `BadMagic`, `Oversized`, `Valid`) so the caller could decide differently per case (e.g. close the connection immediately on `BadMagic`, but keep buffering on `Incomplete`). Not yet implemented — listed honestly rather than silently worked around.
+**Known, documented limitation**: all five cases collapse into the same `valid = false` — there's no way for a caller to distinguish "wait for more data" from "this stream is corrupted, give up" from "checksum mismatch." A production version would use an enum (`Incomplete`, `BadMagic`, `Oversized`, `ChecksumMismatch`, `Valid`) so the caller could decide differently per case (e.g. close the connection immediately on `BadMagic` or `ChecksumMismatch`, but keep buffering on `Incomplete`). Not yet implemented — listed honestly rather than silently worked around.
 
 ## Why length-prefixed framing over TCP
 

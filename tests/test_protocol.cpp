@@ -54,3 +54,17 @@ TEST(ProtocolTest, EmptyDataIsRejected) {
     DecodedPacket decoded = decodePacket(nullptr, 0);
     EXPECT_FALSE(decoded.valid);
 }
+
+TEST(ProtocolTest, CorruptedPayloadFailsChecksum) {
+    std::string original = "PRODUCE hello world";
+    auto packet = encodePacket(original);
+
+    // Flip one bit in the middle of the payload — magic, length, and CRC
+    // field itself are all still intact and correctly formed; only the
+    // payload content changed after the CRC was computed over the original.
+    size_t payload_byte_offset = 8 + 5; // well inside the payload region
+    packet[payload_byte_offset] ^= 0x01;
+
+    DecodedPacket decoded = decodePacket(packet.data(), packet.size());
+    EXPECT_FALSE(decoded.valid) << "a single flipped bit in the payload must fail CRC validation";
+}
