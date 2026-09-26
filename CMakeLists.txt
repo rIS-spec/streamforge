@@ -77,3 +77,6 @@ gtest_discover_tests(test_recovery)
 add_executable(benchmark_client src/benchmark_client.cpp)
 target_include_directories(benchmark_client PRIVATE include)
 target_link_libraries(benchmark_client PRIVATE Threads::Threads)
+
+add_executable(sf_client src/sf_client.cpp)
+target_include_directories(sf_client PRIVATE include)
