@@ -16,6 +16,7 @@
 #include "protocol.h"
 #include <csignal>
 #include <atomic>
+#include "logger.h"
 
 std::atomic<bool> shutdown_requested{false};
 
@@ -36,6 +37,7 @@ void closeClient(int client_fd, int epoll_fd) {
     close(client_fd);
     std::lock_guard<std::mutex> lock(buffers_mutex);
     client_buffers.erase(client_fd);
+    logEvent(LogLevel::DEBUG, "client_disconnected", {{"fd", std::to_string(client_fd)}});
 }
 
 void rearm(int client_fd, int epoll_fd) {
@@ -136,12 +138,12 @@ int main(int argc, char* argv[]) {
     address.sin_family = AF_INET;
     address.sin_addr.s_addr = INADDR_ANY;
     address.sin_port = htons(cfg.port);
-        if (bind(server_fd, (sockaddr*)&address, sizeof(address)) < 0) {
-        std::cerr << "Fatal: bind() failed on port " << cfg.port << " — " << strerror(errno) << "\n";
+    if (bind(server_fd, (sockaddr*)&address, sizeof(address)) < 0) {
+        logEvent(LogLevel::ERROR, "bind_failed", {{"port", std::to_string(cfg.port)}, {"errno", strerror(errno)}});
         return 1;
     }
     if (listen(server_fd, 128) < 0) {
-        std::cerr << "Fatal: listen() failed — " << strerror(errno) << "\n";
+        logEvent(LogLevel::ERROR, "listen_failed", {{"errno", strerror(errno)}});
         return 1;
     }
 
@@ -153,10 +155,12 @@ int main(int argc, char* argv[]) {
     ev.data.fd = server_fd;
     epoll_ctl(epoll_fd, EPOLL_CTL_ADD, server_fd, &ev);
 
-    std::cout << "StreamForge listening on port " << cfg.port
-              << " (workers=" << cfg.workers
-              << ", partitions=" << cfg.partitions
-              << ", data_dir=" << cfg.data_dir << ")\n";
+    logEvent(LogLevel::INFO, "broker_started", {
+        {"port", std::to_string(cfg.port)},
+        {"workers", std::to_string(cfg.workers)},
+        {"partitions", std::to_string(cfg.partitions)},
+        {"data_dir", cfg.data_dir}
+    });
 
     const int MAX_EVENTS = 64;
     epoll_event events[MAX_EVENTS];
@@ -187,7 +191,7 @@ int main(int argc, char* argv[]) {
             }
         }
     }
-    std::cout << "\nShutdown signal received, closing...\n";
+    logEvent(LogLevel::INFO, "shutdown_signal_received", {});
     close(server_fd);
     close(epoll_fd);
     return 0;
