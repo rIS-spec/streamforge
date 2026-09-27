@@ -39,6 +39,40 @@ This confirms durability (Phase 12's ACK-after-fsync policy), not the
 network layer, the thread pool, or epoll, is the system's throughput
 ceiling at this scale.
 
+## Syscall-level confirmation (strace -c, Tier 4)
+
+The throughput analysis above was based on code-level reasoning about
+where fsync() sits in the critical path. This was independently
+confirmed with `strace -f -c` against a live `--concurrency 10`
+benchmark run (2000 messages):
+
+```
+% time     seconds  usecs/call     calls    errors syscall
+------ ----------- ----------- --------- --------- ----------------
+ 54.09    3.962128        1981      2000           fsync
+ 22.40    1.641048        1149      1427         1 epoll_wait
+  6.55    0.479834         119      4010      2000 recvfrom
+  6.38    0.466957         233      2000           sendto
+  4.61    0.337846         167      2021           epoll_ctl
+  3.84    0.281212         139      2012           write
+  1.84    0.134964         203       663       203 futex
+------ ----------- ----------- --------- --------- ----------------
+100.00    7.324650         511     14329      2207 total
+```
+
+fsync accounts for 54% of all syscall time across every thread — more
+than double epoll_wait (22.4%, mostly legitimate idle-waiting, not
+cost) and over 14x the plain write syscall (3.84%) that copies bytes
+into the page cache. This directly confirms the write itself is
+cheap; the durability guarantee (forcing those bytes to physical disk
+before acknowledging) is what's expensive — exactly the trade-off
+documented in [ADR 007](adrs/adr-007-ack-after-fsync.md).
+
+2000 fsync calls exactly matches 2000 completed messages (one fsync
+per Log::append(), as designed). The errors count on recvfrom (2000)
+and futex (203) are expected EAGAIN/EWOULDBLOCK results from
+non-blocking epoll-driven sockets (Phase 8), not real errors.
+
 ## Known future work (not implemented, listed honestly)
 
 - Batched or async fsync (relaxes the ACK-after-fsync guarantee from
