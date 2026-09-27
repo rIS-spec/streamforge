@@ -57,7 +57,7 @@ public:
             m.payload = decoded.payload;
             result.push_back(m);
 
-            offset += 8 + decoded.payload.size() + 4;
+            offset += 9 + decoded.payload.size() + 4;
         }
 
         return result;

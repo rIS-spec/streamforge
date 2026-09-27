@@ -92,7 +92,7 @@ void processClientData(int client_fd, Broker& broker, int epoll_fd) {
         auto reply = encodePacket(response);
         send(client_fd, reply.data(), reply.size(), 0);
 
-        size_t consumed = 8 + decoded.payload.size() + 4;
+        size_t consumed = 9 + decoded.payload.size() + 4;
         std::lock_guard<std::mutex> lock(buffers_mutex);
         auto it = client_buffers.find(client_fd);
         if (it == client_buffers.end()) return;

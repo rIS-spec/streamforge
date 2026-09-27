@@ -10,10 +10,12 @@
 └──────────────┴──────────────┴───────────────────┴──────────────┘
 ```
 
-- **Magic number**: `0x53465247` — ASCII "SFRG". First check on every decode; catches a desynced stream (e.g. a client speaking a different or corrupted protocol) before we trust the length field at all.
-- **Length**: `uint32_t`, network byte order (`htonl`/`ntohl`). Capped at 10MB (`MAX_PAYLOAD_SIZE` in `protocol.h`) — this cap is checked **before** the magic-number check triggers a read of that many bytes, specifically so a malicious or corrupted length field can't make the broker allocate or wait for an unbounded amount of data.
+
+- **Magic number**: `0x53465247` — ASCII "SFRG". First check on every decode; catches a desynced stream (e.g. a client speaking a different or corrupted protocol) before we trust anything else in the frame.
+- **Version** (Tier 4): `uint8_t`, currently `PROTOCOL_VERSION = 1`. Checked immediately after the magic number, before the length field is even read. Exists so a future breaking wire-format change can be detected on decode — a client or broker speaking an incompatible version is rejected explicitly (`ProtocolTest.MismatchedProtocolVersionIsRejected`) rather than having its bytes silently misinterpreted against the wrong format.
+- **Length**: `uint32_t`, network byte order (`htonl`/`ntohl`). Capped at 10MB (`MAX_PAYLOAD_SIZE` in `protocol.h`) — this cap is checked before the length can influence any allocation or read size.
 - **Payload**: raw bytes, application-defined content (currently ASCII commands like `PRODUCE <text>` or `CONSUME <partition>`).
-- **CRC32** (Tier 4): standard IEEE 802.3 polynomial, computed over the payload only, appended after it. `decodePacket()` recomputes this on decode and rejects the frame if it doesn't match — this is what closes the "no checksums" gap noted in earlier revisions of this doc.
+- **CRC32** (Tier 4): standard IEEE 802.3 polynomial, computed over the payload only, appended after it. `decodePacket()` recomputes this on decode and rejects the frame if it doesn't match.
 
 ## `decodePacket` semantics
 

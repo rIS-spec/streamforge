@@ -7,10 +7,9 @@
 #include <arpa/inet.h>
 
 constexpr uint32_t MAGIC_NUMBER = 0x53465247; // "SFRG" in hex
+constexpr uint8_t PROTOCOL_VERSION = 1;
 constexpr uint32_t MAX_PAYLOAD_SIZE = 10 * 1024 * 1024; // 10 MB
 
-// Small table-based CRC32 (standard IEEE 802.3 polynomial, 0xEDB88320),
-// no external dependency. Table is built once, on first use.
 inline uint32_t crc32(const uint8_t* data, size_t len) {
     static const std::array<uint32_t, 256> table = [] {
         std::array<uint32_t, 256> t{};
@@ -31,17 +30,18 @@ inline uint32_t crc32(const uint8_t* data, size_t len) {
     return crc ^ 0xFFFFFFFFu;
 }
 
-// Frame: [magic 4B][length 4B][payload][crc32 4B]
-// crc32 is computed over the payload only.
+// Frame: [magic 4B][version 1B][length 4B][payload][crc32 4B]
+// Header is 9 bytes (was 8 before version was added).
 std::vector<uint8_t> encodePacket(const std::string& payload) {
     std::vector<uint8_t> packet;
 
     uint32_t magic_net = htonl(MAGIC_NUMBER);
-    uint32_t len_net = htonl(static_cast<uint32_t>(payload.size()));
-
     const uint8_t* magic_bytes = reinterpret_cast<const uint8_t*>(&magic_net);
     packet.insert(packet.end(), magic_bytes, magic_bytes + 4);
 
+    packet.push_back(PROTOCOL_VERSION);
+
+    uint32_t len_net = htonl(static_cast<uint32_t>(payload.size()));
     const uint8_t* len_bytes = reinterpret_cast<const uint8_t*>(&len_net);
     packet.insert(packet.end(), len_bytes, len_bytes + 4);
 
@@ -61,40 +61,45 @@ struct DecodedPacket {
 };
 
 DecodedPacket decodePacket(const uint8_t* data, size_t data_len) {
-    if (data_len < 8) {
+    // header is now magic(4) + version(1) + length(4) = 9 bytes minimum
+    if (data_len < 9) {
         return {false, ""};
     }
 
-    uint32_t magic_net, len_net;
+    uint32_t magic_net;
     std::memcpy(&magic_net, data, 4);
-    std::memcpy(&len_net, data + 4, 4);
-
     uint32_t magic = ntohl(magic_net);
+    if (magic != MAGIC_NUMBER) {
+        return {false, ""};
+    }
+
+    uint8_t version = data[4];
+    if (version != PROTOCOL_VERSION) {
+        return {false, ""}; // unsupported/future protocol version
+    }
+
+    uint32_t len_net;
+    std::memcpy(&len_net, data + 5, 4);
     uint32_t length = ntohl(len_net);
 
     if (length > MAX_PAYLOAD_SIZE) {
         return {false, ""};
     }
 
-    if (magic != MAGIC_NUMBER) {
+    if (data_len < 9 + static_cast<size_t>(length) + 4) {
         return {false, ""};
     }
 
-    // now need header(8) + payload(length) + crc(4)
-    if (data_len < 8 + static_cast<size_t>(length) + 4) {
-        return {false, ""};
-    }
-
-    const uint8_t* payload_start = data + 8;
+    const uint8_t* payload_start = data + 9;
     std::string payload(reinterpret_cast<const char*>(payload_start), length);
 
     uint32_t stored_crc_net;
-    std::memcpy(&stored_crc_net, data + 8 + length, 4);
+    std::memcpy(&stored_crc_net, data + 9 + length, 4);
     uint32_t stored_crc = ntohl(stored_crc_net);
 
     uint32_t computed_crc = crc32(payload_start, length);
     if (computed_crc != stored_crc) {
-        return {false, ""}; // bit-flip / corruption detected
+        return {false, ""};
     }
 
     return {true, payload};

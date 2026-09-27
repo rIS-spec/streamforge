@@ -28,6 +28,7 @@ TEST(ProtocolTest, OversizedLengthIsRejected) {
 
     const uint8_t* mb = reinterpret_cast<const uint8_t*>(&magic_net);
     packet.insert(packet.end(), mb, mb + 4);
+    packet.push_back(PROTOCOL_VERSION);
     const uint8_t* lb = reinterpret_cast<const uint8_t*>(&huge_len_net);
     packet.insert(packet.end(), lb, lb + 4);
 
@@ -42,9 +43,12 @@ TEST(ProtocolTest, BadMagicNumberIsRejected) {
 
     const uint8_t* mb = reinterpret_cast<const uint8_t*>(&wrong_magic_net);
     packet.insert(packet.end(), mb, mb + 4);
+    packet.push_back(PROTOCOL_VERSION);
     const uint8_t* lb = reinterpret_cast<const uint8_t*>(&len_net);
     packet.insert(packet.end(), lb, lb + 4);
     packet.insert(packet.end(), {'h','e','l','l','o'});
+    // deliberately no trailing CRC bytes — this test only exercises the
+    // magic-number check, which is evaluated before CRC would ever matter
 
     DecodedPacket decoded = decodePacket(packet.data(), packet.size());
     EXPECT_FALSE(decoded.valid);
@@ -67,4 +71,16 @@ TEST(ProtocolTest, CorruptedPayloadFailsChecksum) {
 
     DecodedPacket decoded = decodePacket(packet.data(), packet.size());
     EXPECT_FALSE(decoded.valid) << "a single flipped bit in the payload must fail CRC validation";
+}
+
+TEST(ProtocolTest, MismatchedProtocolVersionIsRejected) {
+    std::string original = "PRODUCE hello";
+    auto packet = encodePacket(original);
+
+    // byte 4 is the version field — corrupt it to simulate a client
+    // speaking a future/incompatible protocol version
+    packet[4] = PROTOCOL_VERSION + 1;
+
+    DecodedPacket decoded = decodePacket(packet.data(), packet.size());
+    EXPECT_FALSE(decoded.valid) << "an unrecognized protocol version must be rejected, not silently misparsed";
 }
