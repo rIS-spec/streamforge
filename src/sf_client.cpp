@@ -66,7 +66,7 @@ int main(int argc, char* argv[]) {
     }
 
     std::cout << "sf-client connected to " << host << ":" << port << "\n";
-    std::cout << "Commands: PRODUCE <text> | CONSUME <partition> | QUIT\n\n";
+    std::cout << "Commands: PRODUCE <text> | CONSUME <partition> | HEALTH | METRICS | QUIT\n\n";
 
     std::string line;
     while (true) {

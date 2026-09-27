@@ -45,6 +45,10 @@ TCP is a byte stream, not a message stream — a single `send()` on the client c
 |---|---|---|
 | Produce | `PRODUCE <payload>` | `OK` |
 | Consume | `CONSUME <partition_idx>` | `MSG: <payload>` or `EMPTY` |
+| Health (Tier 4) | `HEALTH` | `HEALTHY` |
+| Metrics (Tier 4) | `METRICS` | JSON: `messages_produced`, `messages_consumed`, `connections_total`, `uptime_seconds` |
 | Unknown | anything else | `ERR unknown command` |
+
+**Note on naming**: these are not literal HTTP `/health`/`/metrics` endpoints — that would require a second listener speaking HTTP on a separate port, which was deliberately not built (this project has one protocol, built deeply, rather than two built shallowly). `HEALTH`/`METRICS` are commands on the existing binary protocol, reachable via `sf_client` exactly like `PRODUCE`/`CONSUME`.
 
 **Known limitation**: the server only populates `Message::payload` from the command string — `key`, `topic`, `partition`, `offset`, `timestamp`, and `producer_id` fields exist in the `Message` struct but are never set by the current protocol. A real key-based `PRODUCE key:value` syntax (needed to actually exercise the hash-partitioning logic over the network, not just in unit tests) is listed as future work.

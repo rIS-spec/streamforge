@@ -17,6 +17,13 @@
 #include <csignal>
 #include <atomic>
 #include "logger.h"
+#include <atomic>
+#include <chrono>
+
+std::atomic<uint64_t> total_produced{0};
+std::atomic<uint64_t> total_consumed{0};
+std::atomic<uint64_t> total_connections{0};
+auto server_start_time = std::chrono::steady_clock::now();
 
 std::atomic<bool> shutdown_requested{false};
 
@@ -82,11 +89,26 @@ void processClientData(int client_fd, Broker& broker, int epoll_fd) {
             Message m;
             m.payload = decoded.payload.substr(8);
             broker.publish(m);
+            total_produced.fetch_add(1, std::memory_order_relaxed);
             response = "OK";
         } else if (decoded.payload.starts_with("CONSUME ")) {
             size_t idx = std::stoul(decoded.payload.substr(8));
             Message out;
-            response = broker.consume(idx, out) ? ("MSG: " + out.payload) : "EMPTY";
+            if (broker.consume(idx, out)) {
+                total_consumed.fetch_add(1, std::memory_order_relaxed);
+                response = "MSG: " + out.payload;
+            } else {
+                response = "EMPTY";
+            }
+        } else if (decoded.payload == "HEALTH") {
+            response = "HEALTHY";
+        } else if (decoded.payload == "METRICS") {
+            auto uptime = std::chrono::duration_cast<std::chrono::seconds>(
+                std::chrono::steady_clock::now() - server_start_time).count();
+            response = "{\"messages_produced\":" + std::to_string(total_produced.load()) +
+                       ",\"messages_consumed\":" + std::to_string(total_consumed.load()) +
+                       ",\"connections_total\":" + std::to_string(total_connections.load()) +
+                       ",\"uptime_seconds\":" + std::to_string(uptime) + "}";
         } else {
             response = "ERR unknown command";
         }
@@ -183,6 +205,7 @@ int main(int argc, char* argv[]) {
                     epoll_ctl(epoll_fd, EPOLL_CTL_ADD, client_fd, &cev);
                     std::lock_guard<std::mutex> lock(buffers_mutex);
                     client_buffers[client_fd] = {};
+                    total_connections.fetch_add(1, std::memory_order_relaxed);
                 }
             } else {
                 pool.submit([fd, &broker, epoll_fd]() {
