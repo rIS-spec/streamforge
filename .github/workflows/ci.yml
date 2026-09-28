@@ -8,7 +8,7 @@ on:
 
 jobs:
   build-and-test:
-    name: Build + Unit/Integration Tests
+    name: Build + Unit Tests + Server Smoke Test
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -26,13 +26,13 @@ jobs:
         working-directory: build
         run: ctest --output-on-failure
 
-      # TODO (tracked, not silently skipped): no test yet spins up
-      # broker_server_epoll and drives it over a real TCP socket end-to-end.
-      # test_broker/test_recovery cover multi-component integration
-      # (Topic+Log, Broker+Partitioner+Topic) but not the live server binary.
+      # Unit tests never start the server binary. This does: real TCP traffic,
+      # a hostile client, then a clean shutdown.
+      - name: Server smoke test
+        run: bash scripts/smoke_test.sh build
 
   sanitizers:
-    name: ASan + UBSan Build
+    name: ASan + UBSan (tests + server)
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -57,6 +57,47 @@ jobs:
           UBSAN_OPTIONS: print_stacktrace=1
         run: ctest --output-on-failure
 
+      - name: Server smoke test under sanitizers
+        env:
+          ASAN_OPTIONS: detect_leaks=1
+          UBSAN_OPTIONS: print_stacktrace=1
+        run: bash scripts/smoke_test.sh build-san
+
+  tsan:
+    name: ThreadSanitizer (concurrency tests + server)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake g++ ninja-build
+
+      # GCC 13's TSan runtime aborts on kernels with high ASLR entropy
+      # ("unexpected memory mapping"). Lowering it is the standard workaround.
+      - name: Lower ASLR entropy for TSan
+        run: sudo sysctl -w vm.mmap_rnd_bits=28
+
+      - name: Configure with TSan
+        run: >
+          cmake -B build-tsan -G Ninja
+          -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_CXX_FLAGS="-fsanitize=thread -g"
+          -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=thread"
+
+      - name: Build with TSan
+        run: cmake --build build-tsan
+
+      - name: Concurrency-focused tests under TSan
+        working-directory: build-tsan
+        env:
+          TSAN_OPTIONS: halt_on_error=1
+        run: ctest -R "Concurrency|ThreadPool|Broker" --output-on-failure --timeout 600
+
+      - name: Server smoke test under TSan
+        env:
+          TSAN_OPTIONS: halt_on_error=1
+        run: bash scripts/smoke_test.sh build-tsan
+
   lint:
     name: clang-tidy
     runs-on: ubuntu-24.04
@@ -73,14 +114,5 @@ jobs:
         run: |
           find include src -name '*.h' -o -name '*.cpp' | \
           xargs clang-tidy -p build --quiet || true
-        # `|| true`: clang-tidy warnings shouldn't fail the whole pipeline yet
-        # (no baseline established) — this job reports findings without
-        # blocking merges until we've done a first pass and fixed what matters.
-
-  # Future work, not yet enabled:
-  # docker-build:
-  #   name: Docker image build
-  #   runs-on: ubuntu-24.04
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - run: docker build -t streamforge-broker .
+        # `|| true`: findings are reported but do not block merges until a
+        # baseline cleanup pass has been done.
