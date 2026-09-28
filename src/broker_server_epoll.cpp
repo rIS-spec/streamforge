@@ -76,7 +76,7 @@ void processClientData(int client_fd, Broker& broker, int epoll_fd) {
                     buffer_exceeded = true;
                     buffer_size = it->second.size();
                 }
-            } // lock released here, before closeClient() (which locks the same mutex) is called
+            } // lock released before closeClient(), which locks the same mutex
 
             if (buffer_exceeded) {
                 logEvent(LogLevel::WARN, "client_buffer_exceeded_limit",
@@ -84,6 +84,13 @@ void processClientData(int client_fd, Broker& broker, int epoll_fd) {
                 closeClient(client_fd, epoll_fd);
                 return;
             }
+        } else if (n == 0) {
+            closeClient(client_fd, epoll_fd);   // peer closed the connection
+            return;
+        } else {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) break;   // drained: go decode
+            closeClient(client_fd, epoll_fd);
+            return;
         }
     }
 
@@ -165,7 +172,7 @@ int main(int argc, char* argv[]) {
     Config cfg = parseArgs(argc, argv);
 
     Broker broker(cfg.partitions, cfg.data_dir + "/streamforge");
-    ThreadPool pool(cfg.workers);
+    auto pool = std::make_unique<ThreadPool>(cfg.workers);
 
     int server_fd = socket(AF_INET, SOCK_STREAM, 0);
     int opt = 1;
@@ -236,13 +243,14 @@ int main(int argc, char* argv[]) {
                     total_connections.fetch_add(1, std::memory_order_relaxed);
                 }
             } else {
-                pool.submit([fd, &broker, epoll_fd]() {
+                pool->submit([fd, &broker, epoll_fd]() {
                     processClientData(fd, broker, epoll_fd);
                 });
             }
         }
     }
     logEvent(LogLevel::INFO, "shutdown_signal_received", {});
+    pool.reset();   // join workers first: they still use epoll_fd until they finish
     close(server_fd);
     close(epoll_fd);
     return 0;

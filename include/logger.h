@@ -47,5 +47,5 @@ inline void logEvent(LogLevel level, const std::string& event,
     }
     out << "}";
 
-    std::cout << out.str() << "\n";
+    std::cout << out.str() << std::endl;
 }

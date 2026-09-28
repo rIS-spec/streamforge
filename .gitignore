@@ -3,4 +3,4 @@ build/
 *.log
 *:Zone.Identifier
 get-docker.sh
-EOF
+EOFbuild-*/
