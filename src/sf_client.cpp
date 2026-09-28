@@ -66,6 +66,27 @@ int main(int argc, char* argv[]) {
     }
 
     std::cout << "sf-client connected to " << host << ":" << port << "\n";
+
+    // Check for an unsolicited message from the server (e.g. a rejection)
+    // before sending anything ourselves — reading first avoids racing our
+    // own send() against a server that already closed the connection.
+    timeval tv{0, 200000}; // 200ms
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+
+    uint8_t peek_buf[512];
+    ssize_t peek_n = recv(sock, peek_buf, sizeof(peek_buf), MSG_PEEK);
+    if (peek_n > 0) {
+        DecodedPacket decoded = decodePacket(peek_buf, static_cast<size_t>(peek_n));
+        if (decoded.valid) {
+            std::cout << decoded.payload << "\n";
+            close(sock);
+            return 1;
+        }
+    }
+
+    tv = {0, 0}; // back to blocking for the normal REPL
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+
     std::cout << "Commands: PRODUCE <text> | CONSUME <partition> | HEALTH | METRICS | QUIT\n\n";
 
     std::string line;

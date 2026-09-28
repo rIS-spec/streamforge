@@ -44,3 +44,10 @@ The response is only sent **after** `fsync()` returns — this is what makes the
 ## Why epoll instead of thread-per-connection
 
 Phase 4 built a working thread-per-connection server first (`broker_server.cpp`, kept in the repo), then Phase 8 replaced it. The reason: thread-per-connection ties resource usage directly to connection count — 10,000 idle connections means 10,000 OS threads, each with their own stack, most doing nothing. `epoll` lets one thread monitor thousands of sockets and only wakes work up when there's actually data to process, which is why every real message broker (Kafka, RabbitMQ, etc.) uses an event-loop model at its core rather than thread-per-connection.
+
+## Resource limits (Tier 4)
+
+- Per-client buffer cap: a connection whose accumulated unparsed bytes exceed one maximum-size frame (9 + MAX_PAYLOAD_SIZE + 4) is disconnected and a client_buffer_exceeded_limit WARN is logged. Verified live under an AddressSanitizer build by sending 10MB+ of zero bytes.
+- Connection cap: --max-connections (default 1000). Connections beyond the cap receive a framed "ERR max connections reached" message and are closed. sf_client peeks for this message right after connecting, because sending first races against the server's close and the resulting TCP RST discards the unread rejection.
+
+Known remaining gap: worst-case memory is still connections x max frame size (about 10GB at the defaults) if every client sends junk just under the cap. Closing on the first bad magic number would remove this, but needs decodePacket to distinguish failure reasons (see protocol.md, known limitation).

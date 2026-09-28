@@ -23,6 +23,10 @@
 std::atomic<uint64_t> total_produced{0};
 std::atomic<uint64_t> total_consumed{0};
 std::atomic<uint64_t> total_connections{0};
+
+constexpr size_t MAX_CLIENT_BUFFER_SIZE = 9 + MAX_PAYLOAD_SIZE + 4; // largest possible single frame
+std::atomic<int> active_connections{0};
+
 auto server_start_time = std::chrono::steady_clock::now();
 
 std::atomic<bool> shutdown_requested{false};
@@ -44,6 +48,7 @@ void closeClient(int client_fd, int epoll_fd) {
     close(client_fd);
     std::lock_guard<std::mutex> lock(buffers_mutex);
     client_buffers.erase(client_fd);
+    active_connections.fetch_sub(1, std::memory_order_relaxed);
     logEvent(LogLevel::DEBUG, "client_disconnected", {{"fd", std::to_string(client_fd)}});
 }
 
@@ -59,17 +64,26 @@ void processClientData(int client_fd, Broker& broker, int epoll_fd) {
     while (true) {
         ssize_t n = recv(client_fd, temp, sizeof(temp), 0);
         if (n > 0) {
-            std::lock_guard<std::mutex> lock(buffers_mutex);
-            auto it = client_buffers.find(client_fd);
-            if (it == client_buffers.end()) return;
-            it->second.insert(it->second.end(), temp, temp + n);
-        } else if (n == 0) {
-            closeClient(client_fd, epoll_fd);
-            return;
-        } else {
-            if (errno == EAGAIN || errno == EWOULDBLOCK) break;
-            closeClient(client_fd, epoll_fd);
-            return;
+            bool buffer_exceeded = false;
+            size_t buffer_size = 0;
+            {
+                std::lock_guard<std::mutex> lock(buffers_mutex);
+                auto it = client_buffers.find(client_fd);
+                if (it == client_buffers.end()) return;
+                it->second.insert(it->second.end(), temp, temp + n);
+
+                if (it->second.size() > MAX_CLIENT_BUFFER_SIZE) {
+                    buffer_exceeded = true;
+                    buffer_size = it->second.size();
+                }
+            } // lock released here, before closeClient() (which locks the same mutex) is called
+
+            if (buffer_exceeded) {
+                logEvent(LogLevel::WARN, "client_buffer_exceeded_limit",
+                         {{"fd", std::to_string(client_fd)}, {"size", std::to_string(buffer_size)}});
+                closeClient(client_fd, epoll_fd);
+                return;
+            }
         }
     }
 
@@ -131,6 +145,7 @@ struct Config {
     int workers = 4;
     int partitions = 4;
     std::string data_dir = ".";
+    int max_connections = 1000;
 };
 
 Config parseArgs(int argc, char* argv[]) {
@@ -141,6 +156,7 @@ Config parseArgs(int argc, char* argv[]) {
         else if (arg == "--workers" && i + 1 < argc) cfg.workers = std::stoi(argv[++i]);
         else if (arg == "--partitions" && i + 1 < argc) cfg.partitions = std::stoi(argv[++i]);
         else if (arg == "--data-dir" && i + 1 < argc) cfg.data_dir = argv[++i];
+        else if (arg == "--max-connections" && i + 1 < argc) cfg.max_connections = std::stoi(argv[++i]);
     }
     return cfg;
 }
@@ -181,7 +197,8 @@ int main(int argc, char* argv[]) {
         {"port", std::to_string(cfg.port)},
         {"workers", std::to_string(cfg.workers)},
         {"partitions", std::to_string(cfg.partitions)},
-        {"data_dir", cfg.data_dir}
+        {"data_dir", cfg.data_dir},
+        {"max_connections", std::to_string(cfg.max_connections)}
     });
 
     const int MAX_EVENTS = 64;
@@ -198,6 +215,16 @@ int main(int argc, char* argv[]) {
                     socklen_t len = sizeof(client_addr);
                     int client_fd = accept(server_fd, (sockaddr*)&client_addr, &len);
                     if (client_fd < 0) break;
+
+                    if (active_connections.load(std::memory_order_relaxed) >= cfg.max_connections) {
+                        logEvent(LogLevel::WARN, "connection_rejected_max_reached",
+                                 {{"max_connections", std::to_string(cfg.max_connections)}});
+                        auto rejection = encodePacket("ERR max connections reached");
+                        send(client_fd, rejection.data(), rejection.size(), 0);
+                        close(client_fd);
+                        continue;
+                    }
+
                     setNonBlocking(client_fd);
                     epoll_event cev{};
                     cev.events = EPOLLIN | EPOLLONESHOT;
@@ -205,6 +232,7 @@ int main(int argc, char* argv[]) {
                     epoll_ctl(epoll_fd, EPOLL_CTL_ADD, client_fd, &cev);
                     std::lock_guard<std::mutex> lock(buffers_mutex);
                     client_buffers[client_fd] = {};
+                    active_connections.fetch_add(1, std::memory_order_relaxed);
                     total_connections.fetch_add(1, std::memory_order_relaxed);
                 }
             } else {
