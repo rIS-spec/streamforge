@@ -1,6 +1,5 @@
-cat > .gitignore << 'EOF'
 build/
+build-*/
 *.log
 *:Zone.Identifier
 get-docker.sh
-EOFbuild-*/
