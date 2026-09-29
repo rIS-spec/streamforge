@@ -80,3 +80,5 @@ target_link_libraries(benchmark_client PRIVATE Threads::Threads)
 
 add_executable(sf_client src/sf_client.cpp)
 target_include_directories(sf_client PRIVATE include)
+
+add_compile_options(-Wall -Wextra -Wpedantic)
