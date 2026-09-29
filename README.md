@@ -168,3 +168,14 @@ Developed and tested on WSL2 Ubuntu 24.04 LTS, g++ 13.3.0, CMake 3.28.3, GoogleT
 ## License
 
 MIT
+### Sanitizer builds (ASan+UBSan, TSan)
+
+```bash
+cmake --preset asan && cmake --build --preset asan && (cd build-san && ctest --output-on-failure)
+cmake --preset tsan && cmake --build --preset tsan && (cd build-tsan && ctest --output-on-failure)
+```
+
+**WSL2 note**: GCC's ThreadSanitizer runtime segfaults on WSL2's default ASLR entropy ("unexpected memory mapping" or a bare segfault with no report). Fix per session (resets on WSL restart):
+```bash
+sudo sysctl -w vm.mmap_rnd_bits=28
+```
