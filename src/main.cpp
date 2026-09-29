@@ -8,7 +8,8 @@ int main() {
     std::string line;
 
     while (std::getline(std::cin, line)) {
-        if (line == "exit") break;
+        if (line == "exit")
+            break;
 
         if (line.starts_with("produce ")) {
             Message m;

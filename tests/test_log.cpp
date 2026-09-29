@@ -8,8 +8,10 @@ TEST(LogTest, AppendAndReadBack) {
 
     {
         Log log(path);
-        Message m1; m1.payload = "first message";
-        Message m2; m2.payload = "second message";
+        Message m1;
+        m1.payload = "first message";
+        Message m2;
+        m2.payload = "second message";
         log.append(m1);
         log.append(m2);
     }

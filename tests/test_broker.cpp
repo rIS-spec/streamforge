@@ -12,8 +12,12 @@ TEST(BrokerTest, SameKeyAlwaysGoesToSamePartition) {
     cleanupLogs("test_broker_key", 4);
     Broker broker(4, "test_broker_key");
 
-    Message m1; m1.key = "device-001"; m1.payload = "reading 1";
-    Message m2; m2.key = "device-001"; m2.payload = "reading 2";
+    Message m1;
+    m1.key = "device-001";
+    m1.payload = "reading 1";
+    Message m2;
+    m2.key = "device-001";
+    m2.payload = "reading 2";
     broker.publish(m1);
     broker.publish(m2);
 
@@ -40,6 +44,6 @@ TEST(BrokerTest, ConsumeOnInvalidPartitionReturnsFalse) {
     Broker broker(4, "test_broker_invalid");
 
     Message out;
-    EXPECT_FALSE(broker.consume(99, out));   // way out of range
-    EXPECT_FALSE(broker.consume(4, out));    // exactly one past the last valid index (0-3)
+    EXPECT_FALSE(broker.consume(99, out));  // way out of range
+    EXPECT_FALSE(broker.consume(4, out));   // exactly one past the last valid index (0-3)
 }

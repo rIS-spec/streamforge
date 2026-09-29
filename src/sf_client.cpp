@@ -15,7 +15,8 @@ bool sendCommand(int sock, const std::string& command, std::string& out_response
     size_t sent = 0;
     while (sent < packet.size()) {
         ssize_t n = send(sock, packet.data() + sent, packet.size() - sent, 0);
-        if (n <= 0) return false;
+        if (n <= 0)
+            return false;
         sent += static_cast<size_t>(n);
     }
 
@@ -30,7 +31,8 @@ bool sendCommand(int sock, const std::string& command, std::string& out_response
             return true;
         }
         ssize_t n = recv(sock, chunk, sizeof(chunk), 0);
-        if (n <= 0) return false; // connection closed or error mid-response
+        if (n <= 0)
+            return false;  // connection closed or error mid-response
         buffer.insert(buffer.end(), chunk, chunk + n);
     }
 }
@@ -41,8 +43,10 @@ int main(int argc, char* argv[]) {
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
-        if (arg == "--host" && i + 1 < argc) host = argv[++i];
-        else if (arg == "--port" && i + 1 < argc) port = std::stoi(argv[++i]);
+        if (arg == "--host" && i + 1 < argc)
+            host = argv[++i];
+        else if (arg == "--port" && i + 1 < argc)
+            port = std::stoi(argv[++i]);
     }
 
     int sock = socket(AF_INET, SOCK_STREAM, 0);
@@ -60,8 +64,8 @@ int main(int argc, char* argv[]) {
     }
 
     if (connect(sock, (sockaddr*)&addr, sizeof(addr)) < 0) {
-        std::cerr << "sf-client: connect() failed — is the broker running on "
-                  << host << ":" << port << "?\n";
+        std::cerr << "sf-client: connect() failed — is the broker running on " << host << ":"
+                  << port << "?\n";
         return 1;
     }
 
@@ -70,7 +74,7 @@ int main(int argc, char* argv[]) {
     // Check for an unsolicited message from the server (e.g. a rejection)
     // before sending anything ourselves — reading first avoids racing our
     // own send() against a server that already closed the connection.
-    timeval tv{0, 200000}; // 200ms
+    timeval tv{0, 200000};  // 200ms
     setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
     uint8_t peek_buf[512];
@@ -84,7 +88,7 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    tv = {0, 0}; // back to blocking for the normal REPL
+    tv = {0, 0};  // back to blocking for the normal REPL
     setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
     std::cout << "Commands: PRODUCE <text> | CONSUME <partition> | HEALTH | METRICS | QUIT\n\n";
@@ -92,10 +96,13 @@ int main(int argc, char* argv[]) {
     std::string line;
     while (true) {
         std::cout << "sf> ";
-        if (!std::getline(std::cin, line)) break; // EOF (Ctrl+D)
+        if (!std::getline(std::cin, line))
+            break;  // EOF (Ctrl+D)
 
-        if (line.empty()) continue;
-        if (line == "QUIT" || line == "quit" || line == "exit") break;
+        if (line.empty())
+            continue;
+        if (line == "QUIT" || line == "quit" || line == "exit")
+            break;
 
         std::string response;
         if (!sendCommand(sock, line, response)) {

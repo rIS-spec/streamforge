@@ -16,13 +16,15 @@ void handleClient(int client_fd, Broker& broker) {
 
     while (true) {
         ssize_t bytes_read = recv(client_fd, temp, sizeof(temp), 0);
-        if (bytes_read <= 0) break;
+        if (bytes_read <= 0)
+            break;
 
         buffer.insert(buffer.end(), temp, temp + bytes_read);
 
         while (true) {
             DecodedPacket decoded = decodePacket(buffer.data(), buffer.size());
-            if (!decoded.valid) break;
+            if (!decoded.valid)
+                break;
 
             std::string response;
             if (decoded.payload.starts_with("PRODUCE ")) {
@@ -74,11 +76,10 @@ int main() {
         sockaddr_in client_address{};
         socklen_t client_len = sizeof(client_address);
         int client_fd = accept(server_fd, (sockaddr*)&client_address, &client_len);
-        if (client_fd < 0) continue;
+        if (client_fd < 0)
+            continue;
 
-        pool.submit([client_fd, &broker]() {
-            handleClient(client_fd, broker);
-        });
+        pool.submit([client_fd, &broker]() { handleClient(client_fd, broker); });
     }
 
     close(server_fd);

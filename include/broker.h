@@ -5,9 +5,8 @@
 #include "partitioner.h"
 
 class Broker {
-public:
-    Broker(size_t partition_count, const std::string& log_prefix)
-        : partitioner_(partition_count) {
+  public:
+    Broker(size_t partition_count, const std::string& log_prefix) : partitioner_(partition_count) {
         for (size_t i = 0; i < partition_count; ++i) {
             std::string path = log_prefix + "_p" + std::to_string(i) + ".log";
             partitions_.push_back(std::make_unique<Topic>(path));
@@ -20,7 +19,8 @@ public:
     }
 
     bool consume(size_t partition_idx, Message& out) {
-        if (partition_idx >= partitions_.size()) return false;
+        if (partition_idx >= partitions_.size())
+            return false;
         return partitions_[partition_idx]->consume(out);
     }
 
@@ -28,7 +28,7 @@ public:
         return partitions_.size();
     }
 
-private:
+  private:
     std::vector<std::unique_ptr<Topic>> partitions_;
     Partitioner partitioner_;
 };

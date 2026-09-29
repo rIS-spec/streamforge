@@ -24,7 +24,8 @@ std::atomic<uint64_t> total_produced{0};
 std::atomic<uint64_t> total_consumed{0};
 std::atomic<uint64_t> total_connections{0};
 
-constexpr size_t MAX_CLIENT_BUFFER_SIZE = 9 + MAX_PAYLOAD_SIZE + 4; // largest possible single frame
+constexpr size_t MAX_CLIENT_BUFFER_SIZE =
+    9 + MAX_PAYLOAD_SIZE + 4;  // largest possible single frame
 std::atomic<int> active_connections{0};
 
 auto server_start_time = std::chrono::steady_clock::now();
@@ -69,26 +70,29 @@ void processClientData(int client_fd, Broker& broker, int epoll_fd) {
             {
                 std::lock_guard<std::mutex> lock(buffers_mutex);
                 auto it = client_buffers.find(client_fd);
-                if (it == client_buffers.end()) return;
+                if (it == client_buffers.end())
+                    return;
                 it->second.insert(it->second.end(), temp, temp + n);
 
                 if (it->second.size() > MAX_CLIENT_BUFFER_SIZE) {
                     buffer_exceeded = true;
                     buffer_size = it->second.size();
                 }
-            } // lock released before closeClient(), which locks the same mutex
+            }  // lock released before closeClient(), which locks the same mutex
 
             if (buffer_exceeded) {
-                logEvent(LogLevel::WARN, "client_buffer_exceeded_limit",
-                         {{"fd", std::to_string(client_fd)}, {"size", std::to_string(buffer_size)}});
+                logEvent(
+                    LogLevel::WARN, "client_buffer_exceeded_limit",
+                    {{"fd", std::to_string(client_fd)}, {"size", std::to_string(buffer_size)}});
                 closeClient(client_fd, epoll_fd);
                 return;
             }
         } else if (n == 0) {
-            closeClient(client_fd, epoll_fd);   // peer closed the connection
+            closeClient(client_fd, epoll_fd);  // peer closed the connection
             return;
         } else {
-            if (errno == EAGAIN || errno == EWOULDBLOCK) break;   // drained: go decode
+            if (errno == EAGAIN || errno == EWOULDBLOCK)
+                break;  // drained: go decode
             closeClient(client_fd, epoll_fd);
             return;
         }
@@ -99,11 +103,13 @@ void processClientData(int client_fd, Broker& broker, int epoll_fd) {
         {
             std::lock_guard<std::mutex> lock(buffers_mutex);
             auto it = client_buffers.find(client_fd);
-            if (it == client_buffers.end()) return;
+            if (it == client_buffers.end())
+                return;
             snapshot = it->second;
         }
         DecodedPacket decoded = decodePacket(snapshot.data(), snapshot.size());
-        if (!decoded.valid) break;
+        if (!decoded.valid)
+            break;
 
         std::string response;
         if (decoded.payload.starts_with("PRODUCE ")) {
@@ -125,7 +131,8 @@ void processClientData(int client_fd, Broker& broker, int epoll_fd) {
             response = "HEALTHY";
         } else if (decoded.payload == "METRICS") {
             auto uptime = std::chrono::duration_cast<std::chrono::seconds>(
-                std::chrono::steady_clock::now() - server_start_time).count();
+                              std::chrono::steady_clock::now() - server_start_time)
+                              .count();
             response = "{\"messages_produced\":" + std::to_string(total_produced.load()) +
                        ",\"messages_consumed\":" + std::to_string(total_consumed.load()) +
                        ",\"connections_total\":" + std::to_string(total_connections.load()) +
@@ -140,7 +147,8 @@ void processClientData(int client_fd, Broker& broker, int epoll_fd) {
         size_t consumed = 9 + decoded.payload.size() + 4;
         std::lock_guard<std::mutex> lock(buffers_mutex);
         auto it = client_buffers.find(client_fd);
-        if (it == client_buffers.end()) return;
+        if (it == client_buffers.end())
+            return;
         it->second.erase(it->second.begin(), it->second.begin() + consumed);
     }
 
@@ -159,11 +167,16 @@ Config parseArgs(int argc, char* argv[]) {
     Config cfg;
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
-        if (arg == "--port" && i + 1 < argc) cfg.port = std::stoi(argv[++i]);
-        else if (arg == "--workers" && i + 1 < argc) cfg.workers = std::stoi(argv[++i]);
-        else if (arg == "--partitions" && i + 1 < argc) cfg.partitions = std::stoi(argv[++i]);
-        else if (arg == "--data-dir" && i + 1 < argc) cfg.data_dir = argv[++i];
-        else if (arg == "--max-connections" && i + 1 < argc) cfg.max_connections = std::stoi(argv[++i]);
+        if (arg == "--port" && i + 1 < argc)
+            cfg.port = std::stoi(argv[++i]);
+        else if (arg == "--workers" && i + 1 < argc)
+            cfg.workers = std::stoi(argv[++i]);
+        else if (arg == "--partitions" && i + 1 < argc)
+            cfg.partitions = std::stoi(argv[++i]);
+        else if (arg == "--data-dir" && i + 1 < argc)
+            cfg.data_dir = argv[++i];
+        else if (arg == "--max-connections" && i + 1 < argc)
+            cfg.max_connections = std::stoi(argv[++i]);
     }
     return cfg;
 }
@@ -184,7 +197,8 @@ int main(int argc, char* argv[]) {
     address.sin_addr.s_addr = INADDR_ANY;
     address.sin_port = htons(cfg.port);
     if (bind(server_fd, (sockaddr*)&address, sizeof(address)) < 0) {
-        logEvent(LogLevel::ERROR, "bind_failed", {{"port", std::to_string(cfg.port)}, {"errno", strerror(errno)}});
+        logEvent(LogLevel::ERROR, "bind_failed",
+                 {{"port", std::to_string(cfg.port)}, {"errno", strerror(errno)}});
         return 1;
     }
     if (listen(server_fd, 128) < 0) {
@@ -200,20 +214,20 @@ int main(int argc, char* argv[]) {
     ev.data.fd = server_fd;
     epoll_ctl(epoll_fd, EPOLL_CTL_ADD, server_fd, &ev);
 
-    logEvent(LogLevel::INFO, "broker_started", {
-        {"port", std::to_string(cfg.port)},
-        {"workers", std::to_string(cfg.workers)},
-        {"partitions", std::to_string(cfg.partitions)},
-        {"data_dir", cfg.data_dir},
-        {"max_connections", std::to_string(cfg.max_connections)}
-    });
+    logEvent(LogLevel::INFO, "broker_started",
+             {{"port", std::to_string(cfg.port)},
+              {"workers", std::to_string(cfg.workers)},
+              {"partitions", std::to_string(cfg.partitions)},
+              {"data_dir", cfg.data_dir},
+              {"max_connections", std::to_string(cfg.max_connections)}});
 
     const int MAX_EVENTS = 64;
     epoll_event events[MAX_EVENTS];
 
     while (!shutdown_requested) {
         int n = epoll_wait(epoll_fd, events, MAX_EVENTS, 500);
-        if (n < 0) break;
+        if (n < 0)
+            break;
         for (int i = 0; i < n; ++i) {
             int fd = events[i].data.fd;
             if (fd == server_fd) {
@@ -221,7 +235,8 @@ int main(int argc, char* argv[]) {
                     sockaddr_in client_addr{};
                     socklen_t len = sizeof(client_addr);
                     int client_fd = accept(server_fd, (sockaddr*)&client_addr, &len);
-                    if (client_fd < 0) break;
+                    if (client_fd < 0)
+                        break;
 
                     if (active_connections.load(std::memory_order_relaxed) >= cfg.max_connections) {
                         logEvent(LogLevel::WARN, "connection_rejected_max_reached",
@@ -243,14 +258,13 @@ int main(int argc, char* argv[]) {
                     total_connections.fetch_add(1, std::memory_order_relaxed);
                 }
             } else {
-                pool->submit([fd, &broker, epoll_fd]() {
-                    processClientData(fd, broker, epoll_fd);
-                });
+                pool->submit(
+                    [fd, &broker, epoll_fd]() { processClientData(fd, broker, epoll_fd); });
             }
         }
     }
     logEvent(LogLevel::INFO, "shutdown_signal_received", {});
-    pool.reset();   // join workers first: they still use epoll_fd until they finish
+    pool.reset();  // join workers first: they still use epoll_fd until they finish
     close(server_fd);
     close(epoll_fd);
     return 0;

@@ -24,7 +24,7 @@ TEST(ProtocolTest, IncompleteDataIsRejected) {
 TEST(ProtocolTest, OversizedLengthIsRejected) {
     std::vector<uint8_t> packet;
     uint32_t magic_net = htonl(MAGIC_NUMBER);
-    uint32_t huge_len_net = htonl(50 * 1024 * 1024); // 50 MB — over our 10 MB cap
+    uint32_t huge_len_net = htonl(50 * 1024 * 1024);  // 50 MB — over our 10 MB cap
 
     const uint8_t* mb = reinterpret_cast<const uint8_t*>(&magic_net);
     packet.insert(packet.end(), mb, mb + 4);
@@ -38,7 +38,7 @@ TEST(ProtocolTest, OversizedLengthIsRejected) {
 
 TEST(ProtocolTest, BadMagicNumberIsRejected) {
     std::vector<uint8_t> packet;
-    uint32_t wrong_magic_net = htonl(0xDEADBEEF); // not MAGIC_NUMBER
+    uint32_t wrong_magic_net = htonl(0xDEADBEEF);  // not MAGIC_NUMBER
     uint32_t len_net = htonl(5);
 
     const uint8_t* mb = reinterpret_cast<const uint8_t*>(&wrong_magic_net);
@@ -46,7 +46,7 @@ TEST(ProtocolTest, BadMagicNumberIsRejected) {
     packet.push_back(PROTOCOL_VERSION);
     const uint8_t* lb = reinterpret_cast<const uint8_t*>(&len_net);
     packet.insert(packet.end(), lb, lb + 4);
-    packet.insert(packet.end(), {'h','e','l','l','o'});
+    packet.insert(packet.end(), {'h', 'e', 'l', 'l', 'o'});
     // deliberately no trailing CRC bytes — this test only exercises the
     // magic-number check, which is evaluated before CRC would ever matter
 
@@ -66,7 +66,7 @@ TEST(ProtocolTest, CorruptedPayloadFailsChecksum) {
     // Flip one bit in the middle of the payload — magic, length, and CRC
     // field itself are all still intact and correctly formed; only the
     // payload content changed after the CRC was computed over the original.
-    size_t payload_byte_offset = 8 + 5; // well inside the payload region
+    size_t payload_byte_offset = 8 + 5;  // well inside the payload region
     packet[payload_byte_offset] ^= 0x01;
 
     DecodedPacket decoded = decodePacket(packet.data(), packet.size());
@@ -82,5 +82,6 @@ TEST(ProtocolTest, MismatchedProtocolVersionIsRejected) {
     packet[4] = PROTOCOL_VERSION + 1;
 
     DecodedPacket decoded = decodePacket(packet.data(), packet.size());
-    EXPECT_FALSE(decoded.valid) << "an unrecognized protocol version must be rejected, not silently misparsed";
+    EXPECT_FALSE(decoded.valid)
+        << "an unrecognized protocol version must be rejected, not silently misparsed";
 }

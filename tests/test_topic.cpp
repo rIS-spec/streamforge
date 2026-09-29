@@ -5,8 +5,10 @@
 TEST(TopicTest, ConsumesInFIFOOrder) {
     std::remove("test_topic.log");
     Topic topic("test_topic.log");
-    Message m1; m1.payload = "first";
-    Message m2; m2.payload = "second";
+    Message m1;
+    m1.payload = "first";
+    Message m2;
+    m2.payload = "second";
     topic.publish(m1);
     topic.publish(m2);
 

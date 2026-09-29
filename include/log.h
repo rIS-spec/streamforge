@@ -10,17 +10,20 @@
 #include "protocol.h"
 
 class Log {
-public:
+  public:
     explicit Log(const std::string& filepath) {
         fd_ = open(filepath.c_str(), O_APPEND | O_CREAT | O_WRONLY, 0644);
-        if (fd_ < 0) throw std::runtime_error("Log: failed to open " + filepath);
+        if (fd_ < 0)
+            throw std::runtime_error("Log: failed to open " + filepath);
     }
 
     ~Log() {
-        if (fd_ >= 0) close(fd_);
+        if (fd_ >= 0)
+            close(fd_);
     }
 
-    // non-copyable (owns a raw fd), non-movable for now (keeps it simple, matches Topic's mutex-owning style)
+    // non-copyable (owns a raw fd), non-movable for now (keeps it simple, matches Topic's
+    // mutex-owning style)
     Log(const Log&) = delete;
     Log& operator=(const Log&) = delete;
 
@@ -31,27 +34,29 @@ public:
         size_t written = 0;
         while (written < packet.size()) {
             ssize_t n = write(fd_, packet.data() + written, packet.size() - written);
-            if (n < 0) throw std::runtime_error("Log: write() failed");
+            if (n < 0)
+                throw std::runtime_error("Log: write() failed");
             written += static_cast<size_t>(n);
         }
 
-        if (fsync(fd_) != 0) throw std::runtime_error("Log: fsync() failed");
+        if (fsync(fd_) != 0)
+            throw std::runtime_error("Log: fsync() failed");
     }
 
     std::vector<Message> readAll(const std::string& filepath) {
         std::vector<Message> result;
         std::ifstream in(filepath, std::ios::binary);
-        if (!in) return result;
+        if (!in)
+            return result;
 
-        std::vector<uint8_t> data(
-            (std::istreambuf_iterator<char>(in)),
-            std::istreambuf_iterator<char>()
-        );
+        std::vector<uint8_t> data((std::istreambuf_iterator<char>(in)),
+                                  std::istreambuf_iterator<char>());
 
         size_t offset = 0;
         while (offset < data.size()) {
             DecodedPacket decoded = decodePacket(data.data() + offset, data.size() - offset);
-            if (!decoded.valid) break;
+            if (!decoded.valid)
+                break;
 
             Message m;
             m.payload = decoded.payload;
@@ -63,7 +68,7 @@ public:
         return result;
     }
 
-private:
+  private:
     int fd_ = -1;
     std::mutex mutex_;
 };

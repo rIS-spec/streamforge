@@ -6,9 +6,9 @@
 #include <array>
 #include <arpa/inet.h>
 
-constexpr uint32_t MAGIC_NUMBER = 0x53465247; // "SFRG" in hex
+constexpr uint32_t MAGIC_NUMBER = 0x53465247;  // "SFRG" in hex
 constexpr uint8_t PROTOCOL_VERSION = 1;
-constexpr uint32_t MAX_PAYLOAD_SIZE = 10 * 1024 * 1024; // 10 MB
+constexpr uint32_t MAX_PAYLOAD_SIZE = 10 * 1024 * 1024;  // 10 MB
 
 inline uint32_t crc32(const uint8_t* data, size_t len) {
     static const std::array<uint32_t, 256> table = [] {
@@ -75,7 +75,7 @@ DecodedPacket decodePacket(const uint8_t* data, size_t data_len) {
 
     uint8_t version = data[4];
     if (version != PROTOCOL_VERSION) {
-        return {false, ""}; // unsupported/future protocol version
+        return {false, ""};  // unsupported/future protocol version
     }
 
     uint32_t len_net;

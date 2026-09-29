@@ -11,11 +11,13 @@ TEST(RecoveryTest, NormalRestartPreservesMessages) {
 
     {
         Topic t(path);
-        Message m1; m1.payload = "alpha";
-        Message m2; m2.payload = "beta";
+        Message m1;
+        m1.payload = "alpha";
+        Message m2;
+        m2.payload = "beta";
         t.publish(m1);
         t.publish(m2);
-    } // Topic + Log destructors run here — simulates a clean process exit
+    }  // Topic + Log destructors run here — simulates a clean process exit
 
     Topic restarted(path);
     Message out;
@@ -34,8 +36,9 @@ TEST(RecoveryTest, DataSurvivesWithoutCleanClose) {
 
     {
         Log log(path);
-        Message m; m.payload = "not-cleanly-closed";
-        log.append(m); // fsync() already happened by the time this returns
+        Message m;
+        m.payload = "not-cleanly-closed";
+        log.append(m);  // fsync() already happened by the time this returns
         // deliberately no explicit close/flush beyond what append() already did
     }
 
@@ -54,7 +57,8 @@ TEST(RecoveryTest, TruncatedTailRecordIsIgnoredNotCrashed) {
 
     {
         Log log(path);
-        Message m; m.payload = "complete-message";
+        Message m;
+        m.payload = "complete-message";
         log.append(m);
     }
 
@@ -62,14 +66,15 @@ TEST(RecoveryTest, TruncatedTailRecordIsIgnoredNotCrashed) {
     // bypassing Log entirely — this is what a mid-write crash would leave behind
     {
         std::ofstream raw(path, std::ios::app | std::ios::binary);
-        uint8_t junk[5] = {0x53, 0x46, 0x52, 0x47, 0x00}; // starts like valid magic, then nothing
+        uint8_t junk[5] = {0x53, 0x46, 0x52, 0x47, 0x00};  // starts like valid magic, then nothing
         raw.write(reinterpret_cast<const char*>(junk), sizeof(junk));
     }
 
     Log log2(path);
     auto messages = log2.readAll(path);
 
-    ASSERT_EQ(messages.size(), 1) << "corrupt/truncated tail must not be treated as a valid message";
+    ASSERT_EQ(messages.size(), 1)
+        << "corrupt/truncated tail must not be treated as a valid message";
     EXPECT_EQ(messages[0].payload, "complete-message");
 
     std::remove(path.c_str());

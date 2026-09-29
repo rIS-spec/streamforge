@@ -5,7 +5,7 @@
 #include "log.h"
 
 class Topic {
-public:
+  public:
     explicit Topic(const std::string& log_path) : log_(log_path) {
         for (const auto& m : log_.readAll(log_path)) {
             messages_.push(m);
@@ -20,13 +20,14 @@ public:
 
     bool consume(Message& out) {
         std::lock_guard<std::mutex> lock(mutex_);
-        if (messages_.empty()) return false;
+        if (messages_.empty())
+            return false;
         out = messages_.front();
         messages_.pop();
         return true;
     }
 
-private:
+  private:
     std::queue<Message> messages_;
     std::mutex mutex_;
     Log log_;

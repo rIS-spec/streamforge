@@ -20,7 +20,7 @@ int main() {
 
     std::cout << "Listening on port 9002 (epoll experiment)\n";
 
-        int epoll_fd = epoll_create1(0);
+    int epoll_fd = epoll_create1(0);
     if (epoll_fd < 0) {
         std::cerr << "epoll_create1 failed\n";
         return 1;
@@ -34,9 +34,9 @@ int main() {
         std::cerr << "epoll_ctl failed\n";
         return 1;
     }
-        std::cout << "Waiting for events...\n";
+    std::cout << "Waiting for events...\n";
 
-        std::cout << "Waiting for events...\n";
+    std::cout << "Waiting for events...\n";
 
     const int MAX_EVENTS = 10;
     epoll_event events[MAX_EVENTS];

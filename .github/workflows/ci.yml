@@ -116,3 +116,9 @@ jobs:
           xargs clang-tidy -p build --quiet || true
         # `|| true`: findings are reported but do not block merges until a
         # baseline cleanup pass has been done.
+      
+      - name: Check clang-format compliance
+        run: |
+          sudo apt-get install -y clang-format
+          find include src tests -name '*.h' -o -name '*.cpp' | \
+          xargs clang-format --dry-run --Werror

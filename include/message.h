@@ -3,7 +3,6 @@
 #include <cstdint>
 #include <chrono>
 
-
 struct Message {
     std::string topic;
     uint32_t partition;
