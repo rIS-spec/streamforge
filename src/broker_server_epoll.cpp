@@ -38,6 +38,7 @@ void signalHandler(int) {
 
 std::mutex buffers_mutex;
 std::unordered_map<int, std::vector<uint8_t>> client_buffers;
+std::unordered_map<int, std::chrono::steady_clock::time_point> client_last_activity;  // guarded by buffers_mutex
 
 void setNonBlocking(int fd) {
     int flags = fcntl(fd, F_GETFL, 0);
@@ -49,6 +50,7 @@ void closeClient(int client_fd, int epoll_fd) {
     close(client_fd);
     std::lock_guard<std::mutex> lock(buffers_mutex);
     client_buffers.erase(client_fd);
+    client_last_activity.erase(client_fd);
     active_connections.fetch_sub(1, std::memory_order_relaxed);
     logEvent(LogLevel::DEBUG, "client_disconnected", {{"fd", std::to_string(client_fd)}});
 }
@@ -72,6 +74,7 @@ void processClientData(int client_fd, Broker& broker, int epoll_fd) {
                 auto it = client_buffers.find(client_fd);
                 if (it == client_buffers.end())
                     return;
+                client_last_activity[client_fd] = std::chrono::steady_clock::now();
                 it->second.insert(it->second.end(), temp, temp + n);
 
                 if (it->second.size() > MAX_CLIENT_BUFFER_SIZE) {
@@ -161,6 +164,7 @@ struct Config {
     int partitions = 4;
     std::string data_dir = ".";
     int max_connections = 1000;
+    int idle_timeout_seconds = 60;
 };
 
 Config parseArgs(int argc, char* argv[]) {
@@ -177,6 +181,8 @@ Config parseArgs(int argc, char* argv[]) {
             cfg.data_dir = argv[++i];
         else if (arg == "--max-connections" && i + 1 < argc)
             cfg.max_connections = std::stoi(argv[++i]);
+        else if (arg == "--idle-timeout" && i + 1 < argc)
+            cfg.idle_timeout_seconds = std::stoi(argv[++i]);
     }
     return cfg;
 }
@@ -219,7 +225,8 @@ int main(int argc, char* argv[]) {
               {"workers", std::to_string(cfg.workers)},
               {"partitions", std::to_string(cfg.partitions)},
               {"data_dir", cfg.data_dir},
-              {"max_connections", std::to_string(cfg.max_connections)}});
+              {"max_connections", std::to_string(cfg.max_connections)},
+              {"idle_timeout_seconds", std::to_string(cfg.idle_timeout_seconds)}});
 
     const int MAX_EVENTS = 64;
     epoll_event events[MAX_EVENTS];
@@ -228,6 +235,23 @@ int main(int argc, char* argv[]) {
         int n = epoll_wait(epoll_fd, events, MAX_EVENTS, 500);
         if (n < 0)
             break;
+        {
+            auto now = std::chrono::steady_clock::now();
+            std::vector<int> idle_fds;
+            {
+                std::lock_guard<std::mutex> lock(buffers_mutex);
+                for (const auto& [fd, last_active] : client_last_activity) {
+                    auto idle_seconds = std::chrono::duration_cast<std::chrono::seconds>(now - last_active).count();
+                    if (idle_seconds >= cfg.idle_timeout_seconds) idle_fds.push_back(fd);
+                }
+            }
+            for (int fd : idle_fds) {
+                logEvent(LogLevel::WARN, "client_idle_timeout",
+                         {{"fd", std::to_string(fd)}, {"idle_timeout_seconds", std::to_string(cfg.idle_timeout_seconds)}});
+                closeClient(fd, epoll_fd);
+            }
+        }
+
         for (int i = 0; i < n; ++i) {
             int fd = events[i].data.fd;
             if (fd == server_fd) {
@@ -254,6 +278,7 @@ int main(int argc, char* argv[]) {
                     epoll_ctl(epoll_fd, EPOLL_CTL_ADD, client_fd, &cev);
                     std::lock_guard<std::mutex> lock(buffers_mutex);
                     client_buffers[client_fd] = {};
+                    client_last_activity[client_fd] = std::chrono::steady_clock::now();
                     active_connections.fetch_add(1, std::memory_order_relaxed);
                     total_connections.fetch_add(1, std::memory_order_relaxed);
                 }
