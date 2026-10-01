@@ -38,7 +38,8 @@ void signalHandler(int) {
 
 std::mutex buffers_mutex;
 std::unordered_map<int, std::vector<uint8_t>> client_buffers;
-std::unordered_map<int, std::chrono::steady_clock::time_point> client_last_activity;  // guarded by buffers_mutex
+std::unordered_map<int, std::chrono::steady_clock::time_point>
+    client_last_activity;  // guarded by buffers_mutex
 
 void setNonBlocking(int fd) {
     int flags = fcntl(fd, F_GETFL, 0);
@@ -241,13 +242,16 @@ int main(int argc, char* argv[]) {
             {
                 std::lock_guard<std::mutex> lock(buffers_mutex);
                 for (const auto& [fd, last_active] : client_last_activity) {
-                    auto idle_seconds = std::chrono::duration_cast<std::chrono::seconds>(now - last_active).count();
-                    if (idle_seconds >= cfg.idle_timeout_seconds) idle_fds.push_back(fd);
+                    auto idle_seconds =
+                        std::chrono::duration_cast<std::chrono::seconds>(now - last_active).count();
+                    if (idle_seconds >= cfg.idle_timeout_seconds)
+                        idle_fds.push_back(fd);
                 }
             }
             for (int fd : idle_fds) {
                 logEvent(LogLevel::WARN, "client_idle_timeout",
-                         {{"fd", std::to_string(fd)}, {"idle_timeout_seconds", std::to_string(cfg.idle_timeout_seconds)}});
+                         {{"fd", std::to_string(fd)},
+                          {"idle_timeout_seconds", std::to_string(cfg.idle_timeout_seconds)}});
                 closeClient(fd, epoll_fd);
             }
         }
