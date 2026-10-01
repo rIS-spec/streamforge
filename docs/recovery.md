@@ -19,7 +19,15 @@ Write one complete, valid message via `Log`. Then, bypassing `Log` entirely, app
 
 This works because `decodePacket()` already bounds-checks before trusting any field (see [protocol.md](protocol.md)) — `readAll()`'s loop simply stops the moment `decoded.valid` is `false`, which happens naturally at a truncated tail. No additional "corruption detection" code was needed for this specific case.
 
+## Failure injection (Tier 4, `scripts/failure_injection.sh`)
+
+Beyond the unit-level recovery tests above, three scenarios are tested against a real running `broker_server_epoll` subprocess over real TCP:
+
+1. **`kill -9` mid-session.** Two messages produced, broker force-killed (not `SIGTERM` — an actual unclean death), restarted, both messages recovered in order. This is the strongest proof of the fsync-based durability claim in this project: it confirms survival through a death the process had zero chance to react to, not just a graceful shutdown.
+2. **Corrupted on-disk log.** A valid message is written, the broker stops, then 37 random bytes are appended directly to the log file (simulating a crash mid-write of a second record). The broker starts cleanly against this corrupted file and correctly replays only the valid record — confirming `decodePacket`'s bounds/CRC checking (see [protocol.md](protocol.md)) protects startup, not just steady-state operation.
+3. **Garbage flood against a live broker.** Five connections send junk bytes and disconnect; the broker remains fully responsive to real clients afterward (confirmed via `HEALTH`).
+
 ## What is *not* yet tested or handled
 
-- **Bit-flip corruption** — a record with a *valid* magic number and *valid* (in-range) length, but corrupted payload bytes, is currently indistinguishable from legitimate data. There's no checksum to catch this (see [storage.md](storage.md), Known limitations).
-- **A literal `kill -9` of the live server process** — the recovery tests above approximate this at the `Log` unit level, but there is no integration test that starts `broker_server_epoll` as a real subprocess, force-kills it mid-write, and verifies the next startup over a real TCP connection. Your original handoff notes mention this was verified manually once (2 messages produced, `Ctrl+C`, restart, both consumed correctly) — that was a real, live verification, but it is not automated or repeatable as a test today.
+- **Bit-flip corruption that preserves a valid CRC** — cryptographically implausible but theoretically possible; not a realistic gap.
+- **Multiple simultaneous `kill -9` restarts under concurrent load** — the tested scenario is a single client, single kill, clean restart. A broker killed while actively serving many concurrent producers has not been separately tested.
