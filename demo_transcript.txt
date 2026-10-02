@@ -1,0 +1,72 @@
+==============================================
+ StreamForge — End-to-End Demo
+==============================================
+
+--- 1. Start the broker natively ---
+{"ts":1790917809188,"level":"INFO","event":"broker_started","port":"9900","workers":"4","partitions":"1","data_dir":"/tmp/tmp.jhTwzo7Bj5","max_connections":"1000","idle_timeout_seconds":"60"}
+
+--- 2. Produce messages, consume one, check HEALTH/METRICS (real traffic) ---
+sf-client connected to 127.0.0.1:9900
+Commands: PRODUCE <text> | CONSUME <partition> | HEALTH | METRICS | QUIT
+
+sf> OK
+sf> OK
+sf> OK
+sf> MSG: order-42 shipped
+sf> HEALTHY
+sf> {"messages_produced":3,"messages_consumed":1,"connections_total":1,"uptime_seconds":1}
+sf> sf-client disconnected.
+{"ts":1790917810410,"level":"DEBUG","event":"client_disconnected","fd":"6"}
+
+--- 3. Hard-kill the broker mid-session (kill -9, not graceful) to prove durability ---
+broker killed. restarting...
+{"ts":1790917810418,"level":"INFO","event":"broker_started","port":"9900","workers":"4","partitions":"1","data_dir":"/tmp/tmp.jhTwzo7Bj5","max_connections":"1000","idle_timeout_seconds":"60"}
+
+--- 4. Confirm the un-consumed messages survived the hard kill ---
+sf-client connected to 127.0.0.1:9900
+Commands: PRODUCE <text> | CONSUME <partition> | HEALTH | METRICS | QUIT
+
+sf> MSG: order-42 shipped
+sf> MSG: order-43 shipped
+sf> {"messages_produced":0,"messages_consumed":2,"connections_total":1,"uptime_seconds":1}
+sf> sf-client disconnected.
+{"ts":1790917811625,"level":"DEBUG","event":"client_disconnected","fd":"6"}
+
+--- 5. Quick measured benchmark against the recovered broker ---
+{"ts":1790917815419,"level":"DEBUG","event":"client_disconnected","fd":"7"}
+{"ts":1790917815419,"level":"DEBUG","event":"client_disconnected","fd":"6"}
+{"ts":1790917815419,"level":"DEBUG","event":"client_disconnected","fd":"14"}
+{"ts":1790917815420,"level":"DEBUG","event":"client_disconnected","fd":"8"}
+{"ts":1790917815420,"level":"DEBUG","event":"client_disconnected","fd":"10"}
+{"ts":1790917815420,"level":"DEBUG","event":"client_disconnected","fd":"9"}
+{"ts":1790917815420,"level":"DEBUG","event":"client_disconnected","fd":"13"}
+{"ts":1790917815423,"level":"DEBUG","event":"client_disconnected","fd":"12"}
+{"ts":1790917815427,"level":"DEBUG","event":"client_disconnected","fd":"11"}
+{"ts":1790917815432,"level":"DEBUG","event":"client_disconnected","fd":"15"}
+Benchmark: concurrency=10 messages_per_client=100 payload_size=100B
+
+--- Results ---
+Completed messages: 1000 / 1000 requested
+Wall time: 3.80201 s
+Throughput: 263.019 msg/s, 0.030351 MB/s
+Latency p50: 38.3635 ms
+Latency p95: 43.8039 ms
+Latency p99: 51.2128 ms
+
+--- 6. CI status (GitHub Actions, real pipeline) ---
+completed	success	Apply clang-format to idle-timeout code (fixes CI clang-format gate f…	CI	main	push	36816833469	1m43s	2026-10-01T04:48:38Z
+completed	failure	Tier 4: failure injection testing - kill -9 mid-session recovery, cor…	CI	main	push	36816340430	2m2s	2026-10-01T04:42:11Z
+completed	failure	Tier 4: idle-connection timeout (--idle-timeout, default 60s) - compl…	CI	main	push	36815929781	1m25s	2026-10-01T04:36:50Z
+completed	success	Document sanitizer presets and the WSL2 TSan ASLR workaround	CI	main	push	36531527320	1m19s	2026-09-29T06:31:42Z
+
+--- 7. Full test suite, one more time, for the record ---
+18/18 Test #18: RecoveryTest.TruncatedTailRecordIsIgnoredNotCrashed ...   Passed    0.01 sec
+
+100% tests passed, 0 tests failed out of 18
+
+Total Test time (real) =  38.07 sec
+
+==============================================
+ Demo complete.
+==============================================
+{"ts":1790917855652,"level":"INFO","event":"shutdown_signal_received"}
