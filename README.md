@@ -8,7 +8,20 @@ A Kafka-inspired distributed message broker built from scratch in C++20 — raw 
 
 ## Why this project exists
 
-Most student systems projects stop at "it compiles and a demo works." StreamForge is built against a stricter bar: **every claim is either measured or explicitly marked as not yet proven.** No number in this README was estimated — every throughput, latency, and test count below came from actually running the code and pasting the terminal output. Where a limitation exists (no consumer-offset tracking, no checksums yet), it's stated plainly rather than glossed over.
+Most student systems projects stop at "it compiles and a demo works." StreamForge is built against a stricter bar: **every claim is either measured or explicitly marked as not yet proven.** No number in this README was estimated — every throughput, latency, and test count below came from actually running the code and pasting the terminal output. Where a limitation exists, it's stated plainly rather than glossed over. See [docs/demo.md](docs/demo.md) for a full real transcript, including a CI failure that was caught and fixed on camera, not edited out.
+
+## For non-technical readers
+
+Imagine a busy post office. Trucks (producers) drop off packages all day. People (consumers) come to pick packages up, sometimes hours or days later. The post office's job is to:
+
+1. **Never lose a package**, even if the power goes out mid-shift.
+2. **Keep multiple counters open** so one slow package doesn't make everyone else wait.
+3. **Sort packages into the right bin** (partition) so related ones end up together.
+4. **Survive a crash.** If the building loses power *right as* a package is being filed, the next morning's reopening must not lose that package — and must not hand out a package that was already mailed out.
+
+StreamForge is that post office, built in software. "Producers" are programs that send messages (packages); "consumers" are programs that read them later. Instead of a building, StreamForge is a single program (the "broker") that listens on the network, accepts connections from many producers and consumers at once, and writes every message safely to disk before telling the sender "received" — so a message is never acknowledged as safe unless it actually is.
+
+The project doesn't just claim this works — it proves it. One of the tests literally kills the broker's process instantly, mid-operation (the software equivalent of yanking the power cord), restarts it, and checks that nothing was lost. That test passes, every time, and is run automatically every time the code changes (see [CI status](#test-results-measured-not-claimed) below).
 
 ## Architecture
 
@@ -37,61 +50,44 @@ Most student systems projects stop at "it compiles and a demo works." StreamForg
                    └─────────┘ └─────────┘ └─────────┘   fsync'd binary log
 ```
 
-**Wire protocol:** length-prefixed binary framing — `[4-byte magic "SFRG"][4-byte length][payload]`, network byte order, 10MB payload cap enforced before any allocation.
+**Wire protocol:** length-prefixed, versioned binary framing — `[4-byte magic "SFRG"][1-byte version][4-byte length][payload][4-byte CRC32]`, network byte order, 10MB payload cap enforced before any allocation, checksum verified on every decode.
 
 **Concurrency model:** single-threaded epoll accept/dispatch loop hands ready sockets to a fixed thread pool via `EPOLLONESHOT` (re-armed explicitly after each worker finishes) — decouples open-connection count from thread count, and closed a real double-`recv()` race bug caught during development (see [Engineering decisions](#engineering-decisions-and-trade-offs)).
 
-**Durability model:** every `Log::append()` performs a real `fsync()` syscall (via raw `open()`/`write()`/`fsync()`, not `std::ofstream`, which cannot expose a file descriptor to `fsync()`) before returning — this is an explicit **ACK-after-fsync** policy: the broker does not tell a producer "received" until the message is confirmed on physical disk, not just in the OS page cache.
+**Durability model:** every `Log::append()` performs a real `fsync()` syscall (via raw `open()`/`write()`/`fsync()`, not `std::ofstream`, which cannot expose a file descriptor to `fsync()`) before returning — this is an explicit **ACK-after-fsync** policy: the broker does not tell a producer "received" until the message is confirmed on physical disk, not just in the OS page cache. This has been verified to survive a literal `kill -9` (see [docs/demo.md](docs/demo.md)), not just a graceful shutdown.
 
 ## What's implemented
 
-| Phase | Feature | Status |
+| Area | Feature | Status |
 |---|---|---|
-| 0–3 | Toolchain, `Message`/`Topic`/`ThreadPool` core | ✅ |
-| 4–5 | Raw POSIX socket server, length-prefixed binary protocol | ✅ |
-| 6 | Append-only log, crash-recovery replay on startup | ✅ |
-| 7 | Hash/round-robin partitioning, multi-partition `Broker` | ✅ |
-| 8 | epoll-based event loop, `EPOLLONESHOT` race fix | ✅ |
-| 9 | CLI configuration (`--port`, `--workers`, `--partitions`, `--data-dir`) | ✅ |
-| 10 | Oversized-payload rejection, syscall error handling | ✅ |
-| 11 | Graceful shutdown on `SIGINT`/`SIGTERM` | ✅ |
-| 12 | fsync-based durability, explicit ACK-after-fsync policy | ✅ |
-| 14 | Recovery hardening — normal restart, no-clean-close, truncated tail | ✅ |
-| 20 | Real measured benchmarking (throughput + p50/p95/p99 latency) | ✅ |
-| 23 | Negative-path test coverage (bad magic, oversized, invalid partition) | ✅ |
-| 27 | Docker — multi-stage build, non-root user, persistent volume | ✅ |
-| 28 | CI — build+test, ASan/UBSan, clang-tidy (GitHub Actions) | ✅ |
-| 30–31 | Documentation, ADRs | 🚧 in progress |
-| — | Checksums, consumer-offset tracking, multi-broker replication | Explicitly deferred — see [Known limitations](#known-limitations-stated-honestly) |
+| Core | `Message`/`Topic`/`ThreadPool`, raw POSIX socket server | ✅ |
+| Wire protocol | Length-prefixed binary framing, protocol versioning, CRC32 checksums | ✅ |
+| Storage | Append-only fsync'd log, crash-recovery replay on startup | ✅ |
+| Routing | Hash/round-robin partitioning, multi-partition `Broker` | ✅ |
+| Networking | epoll event loop, `EPOLLONESHOT` race fix, CLI config | ✅ |
+| Reliability | Graceful shutdown, oversized-payload rejection, syscall error handling | ✅ |
+| Durability | fsync-based ACK-after-fsync policy, 3-scenario recovery hardening | ✅ |
+| Tooling | `sf-client` interactive CLI, `benchmark_client`, structured JSON logging | ✅ |
+| Observability | `HEALTH`/`METRICS` commands, `strace`-based bottleneck analysis | ✅ |
+| Security | Per-client buffer cap, `--max-connections`, idle-connection timeout | ✅ |
+| Testing | 18 GoogleTest cases, negative-path tests, failure injection (`kill -9`, log corruption) | ✅ |
+| Quality gates | ASan/UBSan/TSan in CI, `-Wall -Wextra -Wpedantic` (zero warnings), clang-format, clang-tidy | ✅ |
+| Deployment | Docker (multi-stage, non-root, persistent volume), CMake presets (Debug/Release/ASan/TSan) | ✅ |
+| CI/CD | GitHub Actions: build+test+smoke test across plain/ASan/TSan builds, lint | ✅ |
+| Docs | README, 5 architecture docs, 7 ADRs, benchmarking, real end-to-end demo transcript | ✅ |
+| — | Consumer-offset tracking, multi-broker replication, HTTP `/health` (vs. protocol command) | Explicitly deferred — see [Known limitations](#known-limitations-stated-honestly) |
 
 ## Test results (measured, not claimed)
 
-**13 GoogleTest cases, 100% passing**, run with `ctest --output-on-failure`:
+**18 GoogleTest cases, 100% passing**, run with `ctest --output-on-failure`, including CRC32 corruption detection, protocol version mismatch rejection, and invalid-partition handling:
 
 ```
-      Start  1: MessageTest.FieldsStoreCorrectly ......................   Passed    0.01 sec
-      Start  2: TopicTest.ConsumesInFIFOOrder .........................   Passed    0.02 sec
-      Start  3: TopicTest.ConsumeOnEmptyQueueReturnsFalse .............   Passed    0.01 sec
-      Start  4: TopicConcurrencyTest.HandlesManyProducersSafely .......   Passed   31.20 sec
-      Start  5: ThreadPoolTest.ProcessesAllSubmittedTasks .............   Passed    3.08 sec
-      Start  6: ProtocolTest.RoundTripSimplePayload ...................   Passed    0.01 sec
-      Start  7: ProtocolTest.IncompleteDataIsRejected .................   Passed    0.01 sec
-      Start  8: ProtocolTest.OversizedLengthIsRejected ................   Passed    0.01 sec
-      Start  9: ProtocolTest.BadMagicNumberIsRejected .................   Passed    0.01 sec
-      Start 10: ProtocolTest.EmptyDataIsRejected ......................   Passed    0.01 sec
-      Start 11: LogTest.AppendAndReadBack .............................   Passed    0.02 sec
-      Start 12: BrokerTest.SameKeyAlwaysGoesToSamePartition ...........   Passed    0.02 sec
-      Start 13: BrokerTest.ConsumeOnInvalidPartitionReturnsFalse ......   Passed    0.01 sec
-      Start 14: RecoveryTest.NormalRestartPreservesMessages ...........   Passed    0.02 sec
-      Start 15: RecoveryTest.DataSurvivesWithoutCleanClose ............   Passed    0.01 sec
-      Start 16: RecoveryTest.TruncatedTailRecordIsIgnoredNotCrashed ...   Passed    0.01 sec
-
-100% tests passed, 0 tests failed out of 16
+100% tests passed, 0 tests failed out of 18
 ```
 
 **Notably:** `TopicConcurrencyTest.HandlesManyProducersSafely` drives **10 threads × 1,000 messages = 10,000 concurrent publishes** against a single mutex-protected `Topic`, verified zero message loss.
 
-The same suite also runs clean under **AddressSanitizer + UndefinedBehaviorSanitizer** in CI (see [`.github/workflows/ci.yml`](.github/workflows/ci.yml)) — no use-after-free, buffer overrun, or undefined behavior detected across the epoll server, the raw-fd `Log`, the thread pool, or the manual byte-level protocol decoder.
+The same suite runs clean under **AddressSanitizer + UndefinedBehaviorSanitizer** and **ThreadSanitizer** in CI — no memory errors, undefined behavior, or data races detected. CI also runs a **server-level smoke test** (`scripts/smoke_test.sh`) against the actual `broker_server_epoll` binary over real TCP under all three build variants — this is what caught a real regression mid-project (see [docs/demo.md](docs/demo.md) for the full story of that bug, found and fixed, not hidden).
 
 ## Benchmark results (measured, 100-byte payloads)
 
@@ -104,7 +100,7 @@ Measured with `benchmark_client` against `broker_server_epoll --workers 4 --part
 | 50  | 5000 | 753.6 | 68.18 ms  | 72.16 ms  | 74.72 ms  |
 | 100 | 5000 | 723.4 | 139.23 ms | 142.66 ms | 144.43 ms |
 
-**What the data shows:** throughput plateaus at ~730–750 msg/s from concurrency=10 onward while latency grows linearly — the signature of requests queuing behind a serialized resource. Root cause, confirmed by design: `fsync()` is called synchronously inside each partition's locked `append()`, so 4 partitions give exactly 4 fsync-bound pipelines (4 × ~185 msg/s ≈ the measured ceiling). This is the direct, measured cost of the Phase 12 ACK-after-fsync durability guarantee — not a network or threading bottleneck. Full analysis in the linked doc.
+**What the data shows:** throughput plateaus at ~730–750 msg/s from concurrency=10 onward while latency grows linearly — the signature of requests queuing behind a serialized resource. Root cause, confirmed both by design and by `strace -c` syscall analysis: `fsync()` accounts for **54% of all syscall time** (see [docs/benchmarking.md](docs/benchmarking.md#syscall-level-confirmation-strace--c-tier-4)) — this is the direct, measured cost of the ACK-after-fsync durability guarantee, not a network or threading bottleneck.
 
 ## Getting started
 
@@ -113,8 +109,8 @@ Measured with `benchmark_client` against `broker_server_epoll --workers 4 --part
 ```bash
 git clone https://github.com/rIS-spec/streamforge.git
 cd streamforge
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build
+cmake --preset release
+cmake --build --preset release
 ```
 
 ### Run the test suite
@@ -130,6 +126,20 @@ ctest --output-on-failure
 ./build/broker_server_epoll --port 9001 --workers 4 --partitions 4 --data-dir ./data
 ```
 
+### Talk to it interactively
+
+```bash
+./build/sf_client --port 9001
+```
+```
+sf> PRODUCE hello world
+OK
+sf> CONSUME 0
+MSG: hello world
+sf> HEALTH
+HEALTHY
+```
+
 ### Run with Docker
 
 ```bash
@@ -137,28 +147,50 @@ docker compose up -d
 docker compose logs -f
 ```
 
-Logs persist across `docker compose restart` via a named volume — verified live, including confirming `SIGTERM` is received and handled gracefully by the containerized process (not force-killed), since the entrypoint uses exec-form (`exec stdbuf -oL -eL /app/broker_server_epoll ...`) so the binary runs as PID 1.
+Logs persist across `docker compose restart` via a named volume — verified live, including confirming `SIGTERM` is received and handled gracefully by the containerized process (not force-killed), since the entrypoint uses exec-form so the binary runs as PID 1.
 
 ### Run the benchmark client
 
 ```bash
-./build/benchmark_client --concurrency 10 --messages 200 --payload-size 100
+./build/benchmark_client --port 9001 --concurrency 10 --messages 200 --payload-size 100
+```
+
+### Run the full end-to-end demo
+
+```bash
+bash scripts/demo.sh
+```
+
+Produces, hard-kills the broker mid-session, restarts it, confirms recovery, benchmarks, and checks CI — see [docs/demo.md](docs/demo.md) for a full annotated transcript of a real run.
+
+### Sanitizer builds (ASan+UBSan, TSan)
+
+```bash
+cmake --preset asan && cmake --build --preset asan && (cd build-san && ctest --output-on-failure)
+cmake --preset tsan && cmake --build --preset tsan && (cd build-tsan && ctest --output-on-failure)
+```
+
+**WSL2 note**: GCC's ThreadSanitizer runtime segfaults on WSL2's default ASLR entropy ("unexpected memory mapping" or a bare segfault with no report). Fix per session (resets on WSL restart):
+```bash
+sudo sysctl -w vm.mmap_rnd_bits=28
 ```
 
 ## Engineering decisions and trade-offs
 
-A few decisions worth explaining, not just stating:
+A few decisions worth explaining, not just stating — full reasoning for each in [`docs/adrs/`](docs/adrs/):
 
 - **Why raw POSIX sockets/fd's instead of a library.** The entire point of this project is systems-programming depth — using Boost.Asio or similar would answer "does it work" but not "do I understand why it works."
 - **Why `std::ofstream` was replaced with raw `open()`/`write()`/`fsync()` in `Log`.** `fsync()` is a POSIX syscall requiring an integer file descriptor; `std::ofstream` deliberately hides that fd as part of being a portable C++ abstraction. There is no standard way to `fsync()` an `ofstream`. Durability could not be honestly implemented without dropping to the raw syscall layer.
-- **The `EPOLLONESHOT` bug, found and fixed during development.** Level-triggered epoll kept reporting the same ready client socket on every `epoll_wait()` call even while a worker was already processing it — two workers could `recv()` the same connection concurrently and corrupt the byte stream. Symptom was silent: `test_client` produce/consume returned nothing, no crash. Fixed with `EPOLLONESHOT` plus an explicit re-arm after each worker finishes. This is the kind of bug that's easy to introduce and hard to see without understanding epoll's edge-triggered vs. level-triggered semantics.
-- **ACK-after-fsync, chosen explicitly over ACK-before-fsync.** Slower (proven — see benchmark table above), but what the broker tells a producer is true. The alternative (async/batched fsync) is legitimate future work, not implemented here, because it reopens a durability-window trade-off that deserves its own explicit decision, not a silent optimization.
+- **The `EPOLLONESHOT` bug, found and fixed during development.** Level-triggered epoll kept reporting the same ready client socket on every `epoll_wait()` call even while a worker was already processing it — two workers could `recv()` the same connection concurrently and corrupt the byte stream. Symptom was silent: produce/consume returned nothing, no crash. Fixed with `EPOLLONESHOT` plus an explicit re-arm after each worker finishes.
+- **ACK-after-fsync, chosen explicitly over ACK-before-fsync.** Slower (proven — see benchmark table above), but what the broker tells a producer is true. See [ADR 007](docs/adrs/adr-007-ack-after-fsync.md) for the full trade-off.
+- **A real regression, caught by CI, fixed in the open.** Mid-project, a hand-applied patch silently broke the server's ability to answer any request at all — the unit tests (which never start the server binary) didn't catch it, but the server-level smoke test added specifically to close that gap did. Full story in [docs/demo.md](docs/demo.md).
 
 ## Known limitations (stated honestly)
 
-- **No consumer-offset tracking.** `Topic`'s constructor replays the *entire* log file on every restart; `consume()` only removes from the in-memory queue, never rewrites the log. A "consumed" message will replay again after a restart. This is a known, documented gap — not yet fixed.
-- **No checksums on log records.** `readAll()` can detect a *truncated* tail record (not enough bytes for a full packet) but not a *bit-flipped* one (right length, corrupted content) — there is no CRC/checksum in the on-disk format yet.
-- **No integration test drives the live server binary end-to-end over a real TCP connection in CI** — current CI coverage is unit/component-level (`test_broker`, `test_recovery`, etc.), not a full socket-level integration test. Tracked as a gap, not silently omitted.
+- **No consumer-offset tracking.** `Topic`'s constructor replays the *entire* log file on every restart; `consume()` only removes from the in-memory queue, never rewrites the log. A "consumed" message will replay again after a restart.
+- **In-memory metrics reset on restart.** `METRICS`' `messages_produced`/`messages_consumed` counters are `std::atomic` in-process counters, not persisted — unlike the message log itself, which is fully durable. Documented live in [docs/demo.md](docs/demo.md) rather than hidden.
+- **`HEALTH`/`METRICS` are protocol commands, not literal HTTP endpoints.** A true `/health` endpoint would mean a second listener speaking HTTP on a separate port — deliberately not built, so the project has one protocol built deeply rather than two built shallowly.
+- **No integration test drives the live server binary over a real TCP connection from inside GoogleTest** — that coverage exists, but as a separate shell-based smoke test (`scripts/smoke_test.sh`), not a `ctest` case.
 - **Single-node only.** No replication, no leader election, no consumer groups. Explicitly out of scope for this project (a possible future v2).
 
 ## Environment
@@ -168,26 +200,3 @@ Developed and tested on WSL2 Ubuntu 24.04 LTS, g++ 13.3.0, CMake 3.28.3, GoogleT
 ## License
 
 MIT
-### Sanitizer builds (ASan+UBSan, TSan)
-
-```bash
-cmake --preset asan && cmake --build --preset asan && (cd build-san && ctest --output-on-failure)
-cmake --preset tsan && cmake --build --preset tsan && (cd build-tsan && ctest --output-on-failure)
-```
-
-**WSL2 note**: GCC's ThreadSanitizer runtime segfaults on WSL2's default ASLR entropy ("unexpected memory mapping" or a bare segfault with no report). Fix per session (resets on WSL restart):
-```bash
-sudo sysctl -w vm.mmap_rnd_bits=28
-```
-
-### Sanitizer builds (ASan+UBSan, TSan)
-
-```bash
-cmake --preset asan && cmake --build --preset asan && (cd build-san && ctest --output-on-failure)
-cmake --preset tsan && cmake --build --preset tsan && (cd build-tsan && ctest --output-on-failure)
-```
-
-**WSL2 note**: GCC's ThreadSanitizer runtime segfaults on WSL2's default ASLR entropy ("unexpected memory mapping" or a bare segfault with no report). Fix per session (resets on WSL restart):
-```bash
-sudo sysctl -w vm.mmap_rnd_bits=28
-```
