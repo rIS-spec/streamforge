@@ -119,9 +119,21 @@ void processClientData(int client_fd, Broker& broker, int epoll_fd) {
         if (decoded.payload.starts_with("PRODUCE ")) {
             Message m;
             m.payload = decoded.payload.substr(8);
-            broker.publish(m);
-            total_produced.fetch_add(1, std::memory_order_relaxed);
-            response = "OK";
+            try {
+                try {
+                    broker.publish(m);
+                    total_produced.fetch_add(1, std::memory_order_relaxed);
+                    response = "OK";
+                } catch (const std::exception& e) {
+                    logEvent(LogLevel::ERROR, "publish_failed",
+                             {{"fd", std::to_string(client_fd)}, {"error", e.what()}});
+                    response = "ERR publish failed";
+                }
+            } catch (const std::exception& e) {
+                logEvent(LogLevel::ERROR, "publish_failed",
+                         {{"fd", std::to_string(client_fd)}, {"error", e.what()}});
+                response = "ERR publish failed";
+            }
         } else if (decoded.payload.starts_with("CONSUME ")) {
             size_t idx = std::stoul(decoded.payload.substr(8));
             Message out;
