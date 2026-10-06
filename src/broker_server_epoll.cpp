@@ -120,15 +120,9 @@ void processClientData(int client_fd, Broker& broker, int epoll_fd) {
             Message m;
             m.payload = decoded.payload.substr(8);
             try {
-                try {
-                    broker.publish(m);
-                    total_produced.fetch_add(1, std::memory_order_relaxed);
-                    response = "OK";
-                } catch (const std::exception& e) {
-                    logEvent(LogLevel::ERROR, "publish_failed",
-                             {{"fd", std::to_string(client_fd)}, {"error", e.what()}});
-                    response = "ERR publish failed";
-                }
+                broker.publish(m);
+                total_produced.fetch_add(1, std::memory_order_relaxed);
+                response = "OK";
             } catch (const std::exception& e) {
                 logEvent(LogLevel::ERROR, "publish_failed",
                          {{"fd", std::to_string(client_fd)}, {"error", e.what()}});
