@@ -79,3 +79,31 @@ TEST(RecoveryTest, TruncatedTailRecordIsIgnoredNotCrashed) {
 
     std::remove(path.c_str());
 }
+
+TEST(RecoveryTest, CorruptedTailLogsWarning) {
+    const std::string path = "recovery_warn.bin";
+    std::remove(path.c_str());
+
+    {
+        Log log(path);
+        Message m;
+        m.payload = "complete-message";
+        log.append(m);
+    }
+    {
+        std::ofstream raw(path, std::ios::app | std::ios::binary);
+        uint8_t junk[20] = {0};
+        raw.write(reinterpret_cast<const char*>(junk), sizeof(junk));
+    }
+
+    testing::internal::CaptureStdout();
+    Log log2(path);
+    auto messages = log2.readAll(path);
+    std::string output = testing::internal::GetCapturedStdout();
+
+    ASSERT_EQ(messages.size(), 1);
+    EXPECT_NE(output.find("log_replay_stopped_early"), std::string::npos)
+        << "corrupted tail must log a WARN, not fail silently";
+
+    std::remove(path.c_str());
+}

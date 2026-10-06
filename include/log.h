@@ -8,6 +8,7 @@
 #include <stdexcept>
 #include "message.h"
 #include "protocol.h"
+#include "logger.h"
 
 class Log {
   public:
@@ -55,8 +56,16 @@ class Log {
         size_t offset = 0;
         while (offset < data.size()) {
             DecodedPacket decoded = decodePacket(data.data() + offset, data.size() - offset);
-            if (!decoded.valid)
+            if (!decoded.valid) {
+                size_t remaining = data.size() - offset;
+                if (remaining > 0) {
+                    logEvent(LogLevel::WARN, "log_replay_stopped_early",
+                             {{"path", filepath},
+                              {"offset", std::to_string(offset)},
+                              {"remaining_bytes", std::to_string(remaining)}});
+                }
                 break;
+            }
 
             Message m;
             m.payload = decoded.payload;
