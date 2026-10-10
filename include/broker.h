@@ -6,16 +6,17 @@
 
 class Broker {
   public:
-    Broker(size_t partition_count, const std::string& log_prefix) : partitioner_(partition_count) {
+    Broker(size_t partition_count, const std::string& log_prefix, size_t max_queue_size = 100000)
+        : partitioner_(partition_count) {
         for (size_t i = 0; i < partition_count; ++i) {
             std::string path = log_prefix + "_p" + std::to_string(i) + ".log";
-            partitions_.push_back(std::make_unique<Topic>(path));
+            partitions_.push_back(std::make_unique<Topic>(path, max_queue_size));
         }
     }
 
-    void publish(const Message& msg) {
+    bool publish(const Message& msg) {
         size_t idx = partitioner_.getPartition(msg.key);
-        partitions_[idx]->publish(msg);
+        return partitions_[idx]->publish(msg);
     }
 
     bool consume(size_t partition_idx, Message& out) {

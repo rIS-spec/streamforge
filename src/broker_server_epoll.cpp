@@ -120,9 +120,14 @@ void processClientData(int client_fd, Broker& broker, int epoll_fd) {
             Message m;
             m.payload = decoded.payload.substr(8);
             try {
-                broker.publish(m);
-                total_produced.fetch_add(1, std::memory_order_relaxed);
-                response = "OK";
+                if (broker.publish(m)) {
+                    total_produced.fetch_add(1, std::memory_order_relaxed);
+                    response = "OK";
+                } else {
+                    logEvent(LogLevel::WARN, "publish_rejected_queue_full",
+                             {{"fd", std::to_string(client_fd)}});
+                    response = "ERR queue full";
+                }
             } catch (const std::exception& e) {
                 logEvent(LogLevel::ERROR, "publish_failed",
                          {{"fd", std::to_string(client_fd)}, {"error", e.what()}});
@@ -172,6 +177,7 @@ struct Config {
     std::string data_dir = ".";
     int max_connections = 1000;
     int idle_timeout_seconds = 60;
+    size_t max_queue_size = 100000;
 };
 
 Config parseArgs(int argc, char* argv[]) {
@@ -190,6 +196,8 @@ Config parseArgs(int argc, char* argv[]) {
             cfg.max_connections = std::stoi(argv[++i]);
         else if (arg == "--idle-timeout" && i + 1 < argc)
             cfg.idle_timeout_seconds = std::stoi(argv[++i]);
+        else if (arg == "--max-queue-size" && i + 1 < argc)
+            cfg.max_queue_size = std::stoul(argv[++i]);
     }
     return cfg;
 }
@@ -197,7 +205,7 @@ Config parseArgs(int argc, char* argv[]) {
 int main(int argc, char* argv[]) {
     Config cfg = parseArgs(argc, argv);
 
-    Broker broker(cfg.partitions, cfg.data_dir + "/streamforge");
+    Broker broker(cfg.partitions, cfg.data_dir + "/streamforge", cfg.max_queue_size);
     auto pool = std::make_unique<ThreadPool>(cfg.workers);
 
     int server_fd = socket(AF_INET, SOCK_STREAM, 0);

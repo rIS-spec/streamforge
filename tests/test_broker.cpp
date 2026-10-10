@@ -47,3 +47,24 @@ TEST(BrokerTest, ConsumeOnInvalidPartitionReturnsFalse) {
     EXPECT_FALSE(broker.consume(99, out));  // way out of range
     EXPECT_FALSE(broker.consume(4, out));   // exactly one past the last valid index (0-3)
 }
+
+TEST(BrokerTest, PublishRejectedWhenQueueFull) {
+    cleanupLogs("test_broker_full", 1);
+    Broker broker(1, "test_broker_full", 2);
+
+    Message m;
+    m.payload = "x";
+    EXPECT_TRUE(broker.publish(m));
+    EXPECT_TRUE(broker.publish(m));
+    EXPECT_FALSE(broker.publish(m)) << "third publish must be rejected: queue cap is 2";
+
+    Message out;
+    ASSERT_TRUE(broker.consume(0, out));
+    EXPECT_TRUE(broker.publish(m)) << "capacity freed by consume, publish must succeed again";
+
+    // The rejected message must never have reached the disk: 3 accepted writes, not 4.
+    Broker reopened(1, "test_broker_full");
+    int count = 0;
+    while (reopened.consume(0, out)) ++count;
+    EXPECT_EQ(count, 3);
+}
