@@ -49,5 +49,11 @@ Phase 4 built a working thread-per-connection server first (`broker_server.cpp`,
 
 - Per-client buffer cap: a connection whose accumulated unparsed bytes exceed one maximum-size frame (9 + MAX_PAYLOAD_SIZE + 4) is disconnected and a client_buffer_exceeded_limit WARN is logged. Verified live under an AddressSanitizer build by sending 10MB+ of zero bytes.
 - Connection cap: --max-connections (default 1000). Connections beyond the cap receive a framed "ERR max connections reached" message and are closed. sf_client peeks for this message right after connecting, because sending first races against the server's close and the resulting TCP RST discards the unread rejection.
+- Per-IP connection cap: --max-connections-per-ip (default 10). Each source IP is counted separately, so one client cannot use up the whole global budget. Connections over the limit receive a framed "ERR too many connections from this IP" message and are closed, and a connection_rejected_per_ip WARN is logged. The check and the slot reservation happen under one lock, and closeClient() erases its bookkeeping before it calls close(fd), so a reused fd number can never have its new state erased by a late cleanup.
+- Queue cap: --max-queue-size (default 100000). A publish that would go over the cap is rejected before the fsync, so no disk work is wasted, and the client receives "ERR queue full".
 
 Known remaining gap: worst-case memory is still connections x max frame size (about 10GB at the defaults) if every client sends junk just under the cap. Closing on the first bad magic number would remove this, but needs decodePacket to distinguish failure reasons (see protocol.md, known limitation).
+
+Known remaining gap: the queue cap counts messages, not bytes. 100,000 messages near the maximum payload size would use far more memory than a normal machine has, so the cap protects against many small messages but not against a few huge ones. A byte-based cap (track the total queued payload bytes and reject once a byte limit is passed) would close this.
+
+Known remaining gap: the per-IP cap uses the source IP address, so many legitimate clients behind one NAT or proxy share a single limit. Raise --max-connections-per-ip for that kind of deployment.
