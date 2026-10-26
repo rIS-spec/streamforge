@@ -39,7 +39,15 @@ void signalHandler(int) {
 std::mutex buffers_mutex;
 std::unordered_map<int, std::vector<uint8_t>> client_buffers;
 std::unordered_map<int, std::chrono::steady_clock::time_point>
-    client_last_activity;  // guarded by buffers_mutex
+    client_last_activity;                              // guarded by buffers_mutex
+std::unordered_map<int, uint32_t> client_ip;           // fd -> source IP, guarded by buffers_mutex
+std::unordered_map<uint32_t, int> connections_per_ip;  // IP -> open count, guarded by buffers_mutex
+
+std::string ipToString(uint32_t ip) {
+    const auto* b = reinterpret_cast<const unsigned char*>(&ip);  // network byte order
+    return std::to_string(b[0]) + "." + std::to_string(b[1]) + "." + std::to_string(b[2]) + "." +
+           std::to_string(b[3]);
+}
 
 void setNonBlocking(int fd) {
     int flags = fcntl(fd, F_GETFL, 0);
@@ -48,12 +56,21 @@ void setNonBlocking(int fd) {
 
 void closeClient(int client_fd, int epoll_fd) {
     epoll_ctl(epoll_fd, EPOLL_CTL_DEL, client_fd, nullptr);
-    close(client_fd);
-    std::lock_guard<std::mutex> lock(buffers_mutex);
-    client_buffers.erase(client_fd);
-    client_last_activity.erase(client_fd);
-    active_connections.fetch_sub(1, std::memory_order_relaxed);
-    logEvent(LogLevel::DEBUG, "client_disconnected", {{"fd", std::to_string(client_fd)}});
+    {
+        std::lock_guard<std::mutex> lock(buffers_mutex);
+        client_buffers.erase(client_fd);
+        client_last_activity.erase(client_fd);
+        auto ip_it = client_ip.find(client_fd);
+        if (ip_it != client_ip.end()) {
+            auto cnt = connections_per_ip.find(ip_it->second);
+            if (cnt != connections_per_ip.end() && --cnt->second <= 0)
+                connections_per_ip.erase(cnt);
+            client_ip.erase(ip_it);
+        }
+        active_connections.fetch_sub(1, std::memory_order_relaxed);
+        logEvent(LogLevel::DEBUG, "client_disconnected", {{"fd", std::to_string(client_fd)}});
+    }
+    close(client_fd);  // LAST: while fd is open the kernel cannot hand its number to a new client
 }
 
 void rearm(int client_fd, int epoll_fd) {
@@ -176,6 +193,7 @@ struct Config {
     int partitions = 4;
     std::string data_dir = ".";
     int max_connections = 1000;
+    int max_connections_per_ip = 10;
     int idle_timeout_seconds = 60;
     size_t max_queue_size = 100000;
 };
@@ -194,6 +212,8 @@ Config parseArgs(int argc, char* argv[]) {
             cfg.data_dir = argv[++i];
         else if (arg == "--max-connections" && i + 1 < argc)
             cfg.max_connections = std::stoi(argv[++i]);
+        else if (arg == "--max-connections-per-ip" && i + 1 < argc)
+            cfg.max_connections_per_ip = std::stoi(argv[++i]);
         else if (arg == "--idle-timeout" && i + 1 < argc)
             cfg.idle_timeout_seconds = std::stoi(argv[++i]);
         else if (arg == "--max-queue-size" && i + 1 < argc)
@@ -241,6 +261,7 @@ int main(int argc, char* argv[]) {
               {"partitions", std::to_string(cfg.partitions)},
               {"data_dir", cfg.data_dir},
               {"max_connections", std::to_string(cfg.max_connections)},
+              {"max_connections_per_ip", std::to_string(cfg.max_connections_per_ip)},
               {"idle_timeout_seconds", std::to_string(cfg.idle_timeout_seconds)}});
 
     const int MAX_EVENTS = 64;
@@ -280,25 +301,46 @@ int main(int argc, char* argv[]) {
                     if (client_fd < 0)
                         break;
 
-                    if (active_connections.load(std::memory_order_relaxed) >= cfg.max_connections) {
-                        logEvent(LogLevel::WARN, "connection_rejected_max_reached",
-                                 {{"max_connections", std::to_string(cfg.max_connections)}});
-                        auto rejection = encodePacket("ERR max connections reached");
+                    const uint32_t ip = client_addr.sin_addr.s_addr;
+                    const char* reject_event = nullptr;
+                    const char* reject_msg = nullptr;
+                    {
+                        std::lock_guard<std::mutex> lock(buffers_mutex);
+                        auto ip_it = connections_per_ip.find(ip);
+                        int ip_count = (ip_it == connections_per_ip.end()) ? 0 : ip_it->second;
+                        if (active_connections.load(std::memory_order_relaxed) >=
+                            cfg.max_connections) {
+                            reject_event = "connection_rejected_max_reached";
+                            reject_msg = "ERR max connections reached";
+                        } else if (ip_count >= cfg.max_connections_per_ip) {
+                            reject_event = "connection_rejected_per_ip";
+                            reject_msg = "ERR too many connections from this IP";
+                        } else {
+                            connections_per_ip[ip] =
+                                ip_count + 1;  // reserve the slot while still locked
+                            client_ip[client_fd] = ip;
+                            client_buffers[client_fd] = {};
+                            client_last_activity[client_fd] = std::chrono::steady_clock::now();
+                            active_connections.fetch_add(1, std::memory_order_relaxed);
+                        }
+                    }
+                    if (reject_event != nullptr) {
+                        logEvent(LogLevel::WARN, reject_event,
+                                 {{"ip", ipToString(ip)},
+                                  {"max_connections", std::to_string(cfg.max_connections)},
+                                  {"max_connections_per_ip",
+                                   std::to_string(cfg.max_connections_per_ip)}});
+                        auto rejection = encodePacket(reject_msg);
                         send(client_fd, rejection.data(), rejection.size(), 0);
                         close(client_fd);
                         continue;
                     }
-
+                    total_connections.fetch_add(1, std::memory_order_relaxed);
                     setNonBlocking(client_fd);
                     epoll_event cev{};
                     cev.events = EPOLLIN | EPOLLONESHOT;
                     cev.data.fd = client_fd;
                     epoll_ctl(epoll_fd, EPOLL_CTL_ADD, client_fd, &cev);
-                    std::lock_guard<std::mutex> lock(buffers_mutex);
-                    client_buffers[client_fd] = {};
-                    client_last_activity[client_fd] = std::chrono::steady_clock::now();
-                    active_connections.fetch_add(1, std::memory_order_relaxed);
-                    total_connections.fetch_add(1, std::memory_order_relaxed);
                 }
             } else {
                 pool->submit(
